@@ -1396,6 +1396,21 @@ window.addEventListener("keydown", e => {
   }
 });
 
+// ---- type "intro" on the map: wipe ALL progress and restart from the very beginning ----
+let introBuf = "";
+window.addEventListener("keydown", e => {
+  if (!mapActive) { introBuf = ""; return; }                 // only on the cloud map
+  if (e.key && e.key.length === 1 && /[a-z]/i.test(e.key)) {
+    introBuf = (introBuf + e.key.toLowerCase()).slice(-5);
+    if (introBuf === "intro") {
+      ["fg_beaten", "fg_seen", "fg_cheat"].forEach(k => localStorage.removeItem(k));  // all progress lost
+      mapActive = false;
+      blackout.classList.add("on");
+      setTimeout(() => { location.href = "index.html?full"; }, 600);
+    }
+  }
+});
+
 /* ==========================================================================
    ENDGAME — with every gas can collected, press E at the plane to take off:
    airplane sound -> fade to black -> the AI video (slightly slowed) -> fade
