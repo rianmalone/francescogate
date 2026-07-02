@@ -756,7 +756,7 @@ const bgm = document.getElementById("bgm");
 const muteBtn = document.getElementById("muteBtn");
 let muted = localStorage.getItem("fg_muted") === "1";   // shared with game.html
 let bgmStarted = false;
-bgm.loop = true; bgm.volume = 0.45; bgm.muted = muted;
+bgm.loop = true; bgm.volume = 0.33; bgm.muted = muted;
 muteBtn.textContent = muted ? "🔇" : "🔊";
 
 // Music begins only after "Reconnect" is clicked (a user gesture), then loops.
@@ -1080,6 +1080,36 @@ const Gate2 = (() => {
       { en: "Good luck",               it: "Buona fortuna" },
       { en: "Good job",                it: "Ben fatto" },
     ]},
+    { sv: "Tack så mycket", correct: "Thank you very much", options: [
+      { en: "Thank you very much",     it: "Grazie mille" },
+      { en: "Excuse me, please",       it: "Mi scusi, per favore" },
+      { en: "You're welcome",          it: "Prego" },
+      { en: "See you later",           it: "A più tardi" },
+    ]},
+    { sv: "Jag förstår inte", correct: "I don't understand", options: [
+      { en: "I don't understand",      it: "Non capisco" },
+      { en: "I don't know",            it: "Non lo so" },
+      { en: "I don't agree",           it: "Non sono d'accordo" },
+      { en: "I don't care",            it: "Non mi importa" },
+    ]},
+    { sv: "Hur mycket kostar det?", correct: "How much does it cost?", options: [
+      { en: "How much does it cost?",  it: "Quanto costa?" },
+      { en: "How old are you?",        it: "Quanti anni hai?" },
+      { en: "How far is it?",          it: "Quanto è lontano?" },
+      { en: "How are you feeling?",    it: "Come ti senti?" },
+    ]},
+    { sv: "Var kommer du ifrån?", correct: "Where are you from?", options: [
+      { en: "Where are you from?",     it: "Da dove vieni?" },
+      { en: "Where are you going?",    it: "Dove vai?" },
+      { en: "Where do you work?",      it: "Dove lavori?" },
+      { en: "Where does it hurt?",     it: "Dove fa male?" },
+    ]},
+    { sv: "Vi ses imorgon", correct: "See you tomorrow", options: [
+      { en: "See you tomorrow",        it: "Ci vediamo domani" },
+      { en: "See you next week",       it: "Ci vediamo la settimana prossima" },
+      { en: "Happy birthday",          it: "Buon compleanno" },
+      { en: "Welcome home",            it: "Bentornato a casa" },
+    ]},
   ];
   // Sarcastic Italian insults shown on a wrong answer.
   const INSULTS = [
@@ -1380,6 +1410,7 @@ function startCutscene() {
   cs.root.classList.add("show");
   cs.black.classList.remove("clear");          // start fully black
   cs.active = false;                            // no advancing during the intro black
+  try { bgm.volume = 0.12; } catch (e) {}      // duck the porcodio music under the dialogue
 
   // black screen + plane take-off sound
   playSnd("sndSeatbelt");

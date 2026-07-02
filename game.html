@@ -237,16 +237,21 @@
   #unlockBanner {
     position: fixed; inset: 0; z-index: 1300; display: none;
     align-items: center; justify-content: center; background: rgba(2,6,14,0.72);
-    opacity: 0; transition: opacity .45s ease;
   }
-  #unlockBanner.show { display: flex; opacity: 1; }
+  #unlockBanner.show { display: flex; animation: unlockFade .4s ease both; }
+  @keyframes unlockFade { from { opacity: 0; } to { opacity: 1; } }
   .unlock-card {
     text-align: center; padding: 34px 46px; border-radius: 18px;
     background: linear-gradient(160deg, #10233f, #0a1526);
     border: 2px solid #38e0ff; box-shadow: 0 0 46px rgba(56,224,255,0.5), inset 0 0 30px rgba(56,224,255,0.12);
-    transform: scale(0.6) translateY(24px); opacity: 0; transition: transform .5s cubic-bezier(.2,1.3,.4,1), opacity .5s ease;
   }
-  #unlockBanner.show .unlock-card { transform: scale(1) translateY(0); opacity: 1; }
+  /* zoom in (with a little overshoot) every time the banner shows */
+  #unlockBanner.show .unlock-card { animation: unlockZoom .6s cubic-bezier(.18,1.1,.3,1) both; }
+  @keyframes unlockZoom {
+    0%   { transform: scale(0.25); opacity: 0; }
+    55%  { transform: scale(1.08); opacity: 1; }
+    100% { transform: scale(1);    opacity: 1; }
+  }
   .unlock-eyebrow { color: #7fe9ff; letter-spacing: 0.35em; font-size: 0.82rem; font-weight: 700; margin-bottom: 12px; animation: unlockGlow 1.4s ease-in-out infinite; }
   @keyframes unlockGlow { 0%,100%{opacity:.6;} 50%{opacity:1;} }
   .unlock-name {
@@ -435,7 +440,7 @@
   }
   #atlas.on { visibility: visible; opacity: 1; }
   #matrixRain { position: absolute; inset: 0; z-index: 0; opacity: 0.45; }
-  .atlas-hint { position: fixed; bottom: 10px; right: 14px; z-index: 6; color: rgba(140,252,157,0.65); font-size: 0.72rem; pointer-events: none; }
+  .atlas-esc { position: fixed; bottom: 10px; right: 14px; z-index: 6; color: rgba(140,252,157,0.65); font-size: 0.72rem; pointer-events: none; }
 
   .atlas-panel {
     position: absolute; inset: 0; z-index: 2;
@@ -553,6 +558,9 @@
   .run-dashes { position: absolute; top: 46%; left: 0; width: 300%; height: 7px; background: repeating-linear-gradient(90deg, #f5c518 0 48px, transparent 48px 96px); will-change: transform; }
   #rider { position: absolute; image-rendering: pixelated; z-index: 5; }
   .run-obstacle { position: absolute; left: 0; image-rendering: pixelated; z-index: 4; will-change: transform; }
+  .run-smoke { position: absolute; left: 0; top: 0; width: 30px; height: 30px; border-radius: 50%; z-index: 3;
+    pointer-events: none; will-change: transform, opacity;
+    background: radial-gradient(circle, rgba(150,150,155,0.6), rgba(150,150,155,0) 70%); }
   /* hanging caution barrier (duck under it) */
   .run-barrier { position: absolute; left: 0; z-index: 4; will-change: transform; border-radius: 5px;
     background: repeating-linear-gradient(45deg, #ffd23e 0 16px, #17171c 16px 32px);
@@ -899,7 +907,7 @@
 <!-- ======================= ATLAS GAME (Revolut coding quiz + roulette) ======================= -->
 <div id="atlas">
   <canvas id="matrixRain"></canvas>
-  <div class="atlas-hint">ESC to leave</div>
+  <div class="atlas-esc">ESC to leave</div>
 
   <!-- intro -->
   <div class="atlas-panel" id="atlasIntro">
@@ -1023,6 +1031,23 @@ const ballLabel = document.getElementById("ballLabel");
 
 const SIZE = 116, SPEED = 3.2, STEP_MS = 140;
 let x = 120, y = 120, dir = "down", moving = false, frame = 0, lastStep = 0;
+
+// subtle footstep: a short noise burst through a lowpass (no asset, respects mute)
+let _stepCtx = null;
+function playStep() {
+  if (localStorage.getItem("fg_muted") === "1") return;
+  try {
+    if (!_stepCtx) _stepCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = _stepCtx; if (ctx.state === "suspended") ctx.resume();
+    const dur = 0.085, sr = ctx.sampleRate, buf = ctx.createBuffer(1, Math.floor(sr * dur), sr), d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 360 + Math.random() * 140;
+    const g = ctx.createGain(); g.gain.value = 0.07;
+    src.connect(lp); lp.connect(g); g.connect(ctx.destination);
+    src.start(); src.stop(ctx.currentTime + dur);
+  } catch (e) {}
+}
 let mapActive = true;                       // paused while a level is running
 const held = { up:false, down:false, left:false, right:false };
 
@@ -1205,7 +1230,7 @@ function tick(now) {
       if (!hitsPlane(nx, y)) tx = nx;
       if (!hitsPlane(tx, ny)) ty = ny;
       x = tx; y = ty;
-      if (now - lastStep > STEP_MS) { frame = (frame + 1) % 2; lastStep = now; }
+      if (now - lastStep > STEP_MS) { frame = (frame + 1) % 2; lastStep = now; if (frame === 0) playStep(); }
     }
     renderPlayer();
     updateLabels();
@@ -1226,8 +1251,10 @@ x = Math.round(window.innerWidth/2 - SIZE/2);
 y = Math.round(window.innerHeight/2 - SIZE/2);
 requestAnimationFrame(tick);
 
-if (["localhost","127.0.0.1"].includes(location.hostname))
-  document.getElementById("devNote").innerHTML = 'DEV: WASD / arrows · walk to the ball · <a href="index.html?full">full intro →</a>';
+// player instructions — always visible; the dev "full intro" link only on localhost
+document.getElementById("devNote").innerHTML =
+  'WASD / arrows to move · walk up to something &amp; press E'
+  + (["localhost", "127.0.0.1"].includes(location.hostname) ? ' · <a href="index.html?full">full intro →</a>' : '');
 
 /* ==========================================================================
    GAS STATE — X / 6, one gas per distinct level beaten (persisted).
@@ -1336,19 +1363,34 @@ refreshUnlocks();
 // reloaded), surface it shortly after load.
 setTimeout(checkNewUnlocks, 600);
 
-// ---- admin cheat: type 983 anywhere on the map to unlock every game ----
+// ---- admin cheat 983: unlock EVERY game; if you're inside a minigame it also
+//      skips it (awards that game's gas + returns to the map). Works anywhere. ----
+const MINIGAMES = [
+  { el: "level",  id: "italy-wc",       leave: () => Level.leave() },
+  { el: "atlas",  id: "atlas-ai",       leave: () => Atlas.leave() },
+  { el: "runner", id: "gp-getaway",     leave: () => Runner.leave() },
+  { el: "heist",  id: "heist-bibi",     leave: () => Heist.leave() },
+  { el: "rhythm", id: "rhythm-dubstep", leave: () => Rhythm.leave() },
+];
 let cheatBuf = "";
 window.addEventListener("keydown", e => {
   if (e.key >= "0" && e.key <= "9") {
     cheatBuf = (cheatBuf + e.key).slice(-3);
-    if (cheatBuf === "983" && !cheatAll) {
-      cheatAll = true; localStorage.setItem("fg_cheat", "1");
-      INTERACTS.forEach(it => markSeen(it.level));   // no per-game banners for the admin unlock
-      refreshUnlocks();
-      unlockNameEl.textContent = "ALL GAMES";
-      unlockDismissEl.textContent = "admin unlock";
-      unlockBanner.classList.add("show");
-      setTimeout(() => unlockBanner.classList.remove("show"), 1400);
+    if (cheatBuf === "983") {
+      if (!cheatAll) {
+        cheatAll = true; localStorage.setItem("fg_cheat", "1");
+        INTERACTS.forEach(it => markSeen(it.level));   // no per-game banners for the admin unlock
+        refreshUnlocks();
+      }
+      // if a minigame is open, skip it: grant its gas and go back to the map
+      const active = MINIGAMES.find(m => document.getElementById(m.el).classList.contains("on"));
+      if (active) { awardGas(active.id); active.leave(); }
+      else {
+        unlockNameEl.textContent = "ALL GAMES";
+        unlockDismissEl.textContent = "admin unlock";
+        unlockBanner.classList.add("show");
+        setTimeout(() => unlockBanner.classList.remove("show"), 1400);
+      }
     }
     if (cheatBuf === "765" && mapActive && !endgameRunning) startEndgame();   // admin: jump to the ending
   }
@@ -1399,6 +1441,7 @@ function startEndgame() {
     endgameEl.classList.add("show");
     endVideo.src = "assets/fatvideo.mp4";
     endVideo.playbackRate = 0.85;              // slightly slowed down
+    endVideo.addEventListener("loadedmetadata", () => { try { endVideo.currentTime = 0.5; } catch (e) {} }, { once: true }); // trim first 0.5s
     endVideo.play().catch(() => {});
     blackout.classList.remove("on");
     setTimeout(() => endVideo.classList.add("show"), 40);
@@ -1428,7 +1471,7 @@ function startEndgame() {
    (shared "fg_muted" key with the puzzle site).
    ========================================================================== */
 const BGM = (() => {
-  const VOL = 0.45, FADE_MS = 750;
+  const VOL = 0.33, FADE_MS = 750;
   const tracks = {
     porcodio: { el: document.getElementById("bgm") },                         // map + runner
     italian:  { el: document.getElementById("sndItalian"), startAt: 90 },      // football: from 1:30
@@ -2177,6 +2220,7 @@ const Runner = (() => {
   let bike = { x: 0, y: 0, vy: 0, onGround: true, ducking: false };
   let obstacles = [], spawnMs = 0, speed = 6, timeLeft = 45, lastFrame = 0;
   let bgImgs = [], bgX = 0, bgW = 0, dashX = 0;
+  let smoke = [], smokeMs = 0;
   const held = { duck: false };
 
   function layout() {
@@ -2189,12 +2233,23 @@ const Runner = (() => {
     levelId = id; mapActive = false;
     el.classList.add("on");
     layout();
-    // parallax background (two copies)
+    // parallax background — tile ENOUGH copies to always cover the screen width
+    // (2 copies left a gap on wide screens, so the next slab visibly "popped in").
     sky.innerHTML = ""; bgImgs = [];
-    for (let i = 0; i < 2; i++) { const im = document.createElement("img"); im.src = "assets/background.png"; sky.appendChild(im); bgImgs.push(im); }
-    const sizeBg = () => { bgW = bgImgs[0].getBoundingClientRect().width || (sky.clientHeight * 1.5); bgImgs.forEach((im, i) => { im.style.left = (i * bgW) + "px"; }); };
-    bgImgs[0].complete ? sizeBg() : (bgImgs[0].onload = sizeBg);
-    setTimeout(sizeBg, 60);
+    const buildBg = (natW, natH) => {
+      const h = sky.clientHeight || (H * 0.74);
+      bgW = Math.max(1, Math.round(h * (natW / natH)));
+      const count = Math.max(2, Math.ceil(W / bgW) + 2);
+      sky.innerHTML = ""; bgImgs = [];
+      for (let i = 0; i < count; i++) {
+        const im = document.createElement("img"); im.src = "assets/background.png";
+        im.style.left = (i * bgW) + "px"; sky.appendChild(im); bgImgs.push(im);
+      }
+    };
+    const probe = new Image();
+    probe.onload = () => buildBg(probe.naturalWidth, probe.naturalHeight);
+    probe.src = "assets/background.png";
+    if (probe.complete && probe.naturalWidth) buildBg(probe.naturalWidth, probe.naturalHeight); // cached (preloaded)
     resetRun();
     msg.classList.remove("on");
     countdownThen(() => { running = true; lastFrame = performance.now(); });   // 3·2·1
@@ -2203,6 +2258,7 @@ const Runner = (() => {
 
   function resetRun() {
     obstacles.forEach(o => o.el.remove()); obstacles = [];
+    smoke.forEach(p => p.el.remove()); smoke = []; smokeMs = 0;
     speed = 6; timeLeft = 45; spawnMs = 700; bgX = 0; dashX = 0;
     bike.x = W * 0.14; bike.y = groundY - bikeH; bike.vy = 0; bike.onGround = true; bike.ducking = false;
     rider.src = "assets/bike.png";
@@ -2212,6 +2268,23 @@ const Runner = (() => {
 
   function jump() { if (bike.onGround && !bike.ducking) { bike.vy = JUMP_V; bike.onGround = false; rider.src = "assets/wheelie.png"; } }
   function duck(v) { held.duck = v; }
+
+  // exhaust smoke puffs kicked out behind the rear wheel
+  function spawnSmoke() {
+    const d = document.createElement("div"); d.className = "run-smoke"; el.appendChild(d);
+    const px = bike.x + bikeW * 0.14;
+    const py = (bike.ducking ? groundY - 12 : bike.y + bikeH * 0.9);
+    smoke.push({ el: d, x: px, y: py, vy: -0.5 - Math.random() * 0.9, s: 0.45 + Math.random() * 0.3, life: 1 });
+  }
+  function updateSmoke(dt) {
+    smoke = smoke.filter(p => {
+      p.x -= speed * 0.28 * dt; p.y += p.vy * dt; p.s += 0.035 * dt; p.life -= 0.032 * dt;
+      p.el.style.opacity = Math.max(0, p.life * 0.5);
+      p.el.style.transform = "translate(" + p.x + "px," + p.y + "px) translate(-50%,-50%) scale(" + p.s + ")";
+      if (p.life <= 0 || p.x < -40) { p.el.remove(); return false; }
+      return true;
+    });
+  }
 
   function positionBike() {
     rider.style.width = bikeW + "px";
@@ -2278,6 +2351,11 @@ const Runner = (() => {
       }
       positionBike();
 
+      // exhaust smoke (only while riding on the ground)
+      smokeMs -= dt * 16.67;
+      if (smokeMs <= 0 && bike.onGround) { spawnSmoke(); smokeMs = 60; }
+      updateSmoke(dt);
+
       // spawn + move obstacles
       spawnMs -= dt * 16.67;
       if (spawnMs <= 0) { spawnObstacle(); spawnMs = Math.max(620, 1300 - speed * 42) + Math.random() * 320; }
@@ -2315,6 +2393,7 @@ const Runner = (() => {
     running = false;
     if (raf) { cancelAnimationFrame(raf); raf = null; }
     obstacles.forEach(o => o.el.remove()); obstacles = [];
+    smoke.forEach(p => p.el.remove()); smoke = [];
     el.classList.remove("on");
   }
   function leave() { running = false; backToMap(stop); }
