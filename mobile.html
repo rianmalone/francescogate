@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+<title>…</title>
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; background: #000; overflow: hidden;
+    font-family: ui-monospace, "Courier New", monospace; color: #e6f2ff;
+    touch-action: manipulation; user-select: none; -webkit-user-select: none;
+  }
+  body { display: flex; align-items: center; justify-content: center; }
+  #stage { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; }
+
+  /* faint scanline veil */
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 40; opacity: 0.5;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,0.03) 0 1px, transparent 1px 3px);
+  }
+
+  /* ---------- the slide puzzle ---------- */
+  #puzzle {
+    position: relative; border-radius: 8px; overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.05);
+    transition: box-shadow .8s ease, opacity .8s ease, transform .8s ease, filter .8s ease;
+  }
+  .tile {
+    position: absolute; left: 0; top: 0; background-repeat: no-repeat;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55);
+    transition: transform .16s cubic-bezier(.3,.7,.3,1); cursor: pointer;
+  }
+  #puzzle.solved { box-shadow: 0 0 44px 6px rgba(56,224,255,0.55); }
+  #puzzle.solved .tile { box-shadow: none; }
+
+  /* ---------- "Ciao, Francesco." beat ---------- */
+  #ciao {
+    position: fixed; left: 0; right: 0; bottom: 9%; text-align: center; padding: 0 26px;
+    opacity: 0; transition: opacity 1.1s ease; pointer-events: none; z-index: 10;
+  }
+  #ciao.show { opacity: 1; }
+  .ciao-text {
+    font-family: "Snell Roundhand", "Segoe Script", "Brush Script MT", cursive; font-style: italic;
+    font-size: clamp(2rem, 10vw, 3rem); color: #fff; text-shadow: 0 0 24px rgba(56,224,255,0.6);
+  }
+  .ciao-cue { margin-top: 18px; font-size: 0.72rem; letter-spacing: 0.3em; color: #52627a; opacity: 0; }
+  .ciao-cue.show { opacity: 1; animation: cuePulse 1.6s ease-in-out infinite; }
+  @keyframes cuePulse { 0%,100%{ opacity: .25; } 50%{ opacity: .8; } }
+
+  /* fade the puzzle + ciao away when moving to the question */
+  #stage.leaving #puzzle { opacity: 0; transform: scale(0.86); filter: blur(6px); }
+  #stage.leaving #ciao { opacity: 0; }
+
+  /* ---------- the ominous question ---------- */
+  #question { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; z-index: 20; padding: 30px; }
+  #question.show { display: flex; }
+  /* pulsing blood-red vignette */
+  .q-vignette { position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(130% 100% at 50% 50%, transparent 42%, rgba(150,0,0,0.5) 100%);
+    opacity: 0; }
+  #question.show .q-vignette { animation: vigIn 1.2s ease .1s forwards, vigPulse 3.4s ease-in-out 1.4s infinite; }
+  @keyframes vigIn { to { opacity: 1; } }
+  @keyframes vigPulse { 0%,100%{ opacity: .55; } 50%{ opacity: 1; } }
+
+  .q-text {
+    position: relative; text-align: center; font-size: clamp(1.4rem, 6.5vw, 2rem); font-weight: 700;
+    line-height: 1.4; color: #fff; max-width: 640px; letter-spacing: 0.02em;
+    text-shadow: 0 0 18px rgba(255,60,60,0.35); opacity: 0;
+  }
+  #question.show .q-text { animation: qTextIn 1.6s cubic-bezier(.2,.7,.2,1) .5s both; }
+  @keyframes qTextIn {
+    0% { opacity: 0; transform: translateY(14px) scale(0.96); letter-spacing: 0.4em; filter: blur(6px); }
+    60% { opacity: 1; }
+    100% { opacity: 1; transform: none; letter-spacing: 0.02em; filter: blur(0); }
+  }
+  .q-it { position: relative; text-align: center; font-size: 0.82rem; font-style: italic; color: #7b8aa0; margin-top: 12px; opacity: 0; }
+  #question.show .q-it { animation: fadeIn 1s ease 1.6s both; }
+  @keyframes fadeIn { to { opacity: 1; } }
+
+  .q-choices { position: relative; display: flex; flex-direction: column; align-items: center; gap: 26px; margin-top: 52px; opacity: 0; }
+  #question.show .q-choices { animation: fadeUp 1s ease 2s both; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: none; } }
+
+  /* YES — big, green, glowing, inviting */
+  #qYes {
+    font-family: inherit; cursor: pointer; font-weight: 900; letter-spacing: 0.14em;
+    font-size: clamp(1.8rem, 9vw, 2.6rem); padding: 20px 64px; border-radius: 16px;
+    color: #04160c; background: linear-gradient(#5effa6, #21c46e); border: 2px solid #baffd6;
+    box-shadow: 0 0 34px 6px rgba(56,224,138,0.7);
+    animation: yesPulse 1.5s ease-in-out infinite;
+  }
+  @keyframes yesPulse {
+    0%,100%{ transform: scale(1); box-shadow: 0 0 30px 4px rgba(56,224,138,0.6); }
+    50%    { transform: scale(1.05); box-shadow: 0 0 46px 10px rgba(56,224,138,0.9); }
+  }
+  /* NO — tiny, red, discreet */
+  #qNo {
+    font-family: inherit; cursor: pointer; font-weight: 700; letter-spacing: 0.05em;
+    font-size: 0.72rem; padding: 5px 12px; border-radius: 7px;
+    color: #b5566a; background: transparent; border: 1px solid rgba(150,40,60,0.5); opacity: 0.6;
+  }
+  #qNo:active { opacity: 0.9; }
+
+  /* the "no" shield: slams in HUGE, then fades */
+  .q-shield {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%) scale(0.2); z-index: 30;
+    font-size: 46vh; opacity: 0; pointer-events: none;
+    filter: drop-shadow(0 0 40px rgba(255,0,0,0.6));
+  }
+  .q-shield.hit { animation: shieldHit 1.3s cubic-bezier(.2,1.4,.3,1) forwards; }
+  @keyframes shieldHit {
+    0%   { opacity: 0; transform: translate(-50%,-50%) scale(0.2); }
+    18%  { opacity: 1; transform: translate(-50%,-50%) scale(1.15); }
+    30%  { transform: translate(-50%,-50%) scale(1); }
+    75%  { opacity: 1; }
+    100% { opacity: 0; transform: translate(-50%,-50%) scale(1.05); }
+  }
+
+  /* ---------- final: continue on a computer ---------- */
+  #final { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; z-index: 25; padding: 30px; text-align: center; }
+  #final.show { display: flex; animation: fadeIn 1.4s ease both; }
+  .final-hi {
+    font-family: "Snell Roundhand", "Segoe Script", "Brush Script MT", cursive; font-style: italic;
+    font-size: clamp(2rem, 10vw, 3rem); color: #fff; text-shadow: 0 0 22px rgba(56,224,255,0.6);
+    opacity: 0; animation: fadeUp 1.2s ease .3s both;
+  }
+  .final-sub { font-size: clamp(1rem, 4.6vw, 1.2rem); color: #7dffa8; font-weight: 800; margin-top: 16px; text-shadow: 0 0 14px rgba(56,224,138,0.45); opacity: 0; animation: fadeUp 1.2s ease 1.1s both; }
+  .final-it { font-size: 0.8rem; font-style: italic; color: #5c6784; margin-top: 6px; opacity: 0; animation: fadeIn 1.2s ease 1.7s both; }
+
+  /* black flash used between beats */
+  #flash { position: fixed; inset: 0; background: #000; z-index: 35; opacity: 0; pointer-events: none; transition: opacity .5s ease; }
+  #flash.on { opacity: 1; }
+</style>
+</head>
+<body>
+  <div id="stage">
+    <div id="puzzle"></div>
+    <div id="ciao">
+      <div class="ciao-text">Ciao, Francesco.</div>
+      <div class="ciao-cue" id="ciaoCue">tap to continue</div>
+    </div>
+    <div id="question">
+      <div class="q-vignette"></div>
+      <div class="q-text">Do you want to take an imaginary trip to Sweden?</div>
+      <div class="q-it">Vuoi fare un viaggio immaginario in Svezia?</div>
+      <div class="q-choices">
+        <button id="qYes">YES</button>
+        <button id="qNo">no</button>
+      </div>
+      <div class="q-shield" id="qShield">🛡️</div>
+    </div>
+    <div id="final">
+      <div class="final-hi">Andiamo.</div>
+      <div class="final-sub">Now open the gate on a computer.</div>
+      <div class="final-it">Ora apri il cancello su un computer.</div>
+    </div>
+  </div>
+  <div id="flash"></div>
+
+<script>
+(function () {
+  const N = 3, IMG = "assets/francesco.jpg";
+  const stage = document.getElementById("stage");
+  const wrap = document.getElementById("puzzle");
+  const ciao = document.getElementById("ciao");
+  const ciaoCue = document.getElementById("ciaoCue");
+  const question = document.getElementById("question");
+  const shield = document.getElementById("qShield");
+  const finalEl = document.getElementById("final");
+  const flash = document.getElementById("flash");
+  const EMPTY = N * N - 1;
+  let cell = 0, size = 0, board = [], tiles = [], solved = false;
+  let state = "puzzle", canAdvance = false;
+
+  const xy = i => [i % N, Math.floor(i / N)];
+  const neighbors = p => { const [x, y] = xy(p), r = []; if (x > 0) r.push(p - 1); if (x < N - 1) r.push(p + 1); if (y > 0) r.push(p - N); if (y < N - 1) r.push(p + N); return r; };
+  const isSolved = () => board.every((t, i) => t === i);
+
+  function build() {
+    size = Math.round(Math.min(window.innerWidth * 0.84, window.innerHeight * 0.62, 380));
+    cell = Math.floor(size / N); size = cell * N;
+    wrap.style.width = wrap.style.height = size + "px"; wrap.innerHTML = ""; wrap.classList.remove("solved");
+    tiles = []; solved = false;
+    for (let t = 0; t < N * N - 1; t++) {
+      const d = document.createElement("div"); d.className = "tile";
+      d.style.width = d.style.height = cell + "px";
+      d.style.backgroundImage = "url(" + IMG + ")";
+      d.style.backgroundSize = size + "px " + size + "px";
+      d.style.backgroundPosition = "-" + (t % N) * cell + "px -" + Math.floor(t / N) * cell + "px";
+      d.addEventListener("click", () => tap(t));
+      wrap.appendChild(d); tiles[t] = d;
+    }
+    board = [...Array(N * N).keys()]; shuffle(); place();
+  }
+  function place() { for (let pos = 0; pos < board.length; pos++) { const id = board[pos]; if (id === EMPTY) continue; const [x, y] = xy(pos); tiles[id].style.transform = "translate(" + x * cell + "px," + y * cell + "px)"; } }
+  function shuffle() { let e = board.indexOf(EMPTY), last = -1; for (let i = 0; i < 60; i++) { const ns = neighbors(e).filter(n => n !== last); const pick = ns[Math.floor(Math.random() * ns.length)];[board[e], board[pick]] = [board[pick], board[e]]; last = e; e = pick; } if (isSolved()) shuffle(); }
+  function tap(id) { if (solved) return; const pos = board.indexOf(id), e = board.indexOf(EMPTY); if (!neighbors(pos).includes(e)) return;[board[pos], board[e]] = [board[e], board[pos]]; place(); if (isSolved()) win(); }
+
+  function win() {
+    solved = true; state = "ciao";
+    // complete the face
+    const d = document.createElement("div"); d.className = "tile";
+    d.style.width = d.style.height = cell + "px"; d.style.backgroundImage = "url(" + IMG + ")";
+    d.style.backgroundSize = size + "px " + size + "px";
+    d.style.backgroundPosition = "-" + (EMPTY % N) * cell + "px -" + Math.floor(EMPTY / N) * cell + "px";
+    const [x, y] = xy(board.indexOf(EMPTY)); d.style.transform = "translate(" + x * cell + "px," + y * cell + "px)";
+    d.style.opacity = "0"; d.style.transition = "opacity .7s ease"; wrap.appendChild(d);
+    requestAnimationFrame(() => { d.style.opacity = "1"; wrap.classList.add("solved"); });
+    // "Ciao, Francesco." — then the 5s lock before you can continue
+    setTimeout(() => ciao.classList.add("show"), 1400);
+    setTimeout(() => { canAdvance = true; ciaoCue.classList.add("show"); }, 1400 + 5000);
+  }
+
+  // tap anywhere (after the 5s) to move on from "Ciao"
+  document.addEventListener("click", (e) => {
+    if (state === "ciao" && canAdvance) { toQuestion(); }
+  });
+
+  function toQuestion() {
+    state = "transition";
+    stage.classList.add("leaving");             // puzzle + ciao blur away
+    flash.classList.add("on");                   // ominous black swallow
+    setTimeout(() => {
+      wrap.style.display = "none"; ciao.style.display = "none";
+      question.classList.add("show");
+      state = "question";
+      flash.classList.remove("on");              // reveal the question from black
+    }, 850);
+  }
+
+  document.getElementById("qYes").addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (state !== "question") return;
+    state = "final";
+    flash.classList.add("on");
+    setTimeout(() => { question.classList.remove("show"); question.style.display = "none"; finalEl.classList.add("show"); flash.classList.remove("on"); }, 700);
+  });
+
+  // NO does nothing — except a giant shield slams in
+  document.getElementById("qNo").addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (state !== "question") return;
+    shield.classList.remove("hit"); void shield.offsetWidth; shield.classList.add("hit");
+  });
+
+  build();
+  let rt; window.addEventListener("resize", () => { if (solved) return; clearTimeout(rt); rt = setTimeout(build, 250); });
+})();
+</script>
+</body>
+</html>
