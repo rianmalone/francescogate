@@ -1,0 +1,2989 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<!-- Desktop-only: flag touch/mobile devices ASAP so the "open on a computer" gate shows -->
+<script>
+(function () {
+  try {
+    var ua = navigator.userAgent || "";
+    var mobUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Silk|Kindle/i.test(ua);
+    var coarse = window.matchMedia && window.matchMedia("(pointer: coarse) and (hover: none)").matches;
+    if (mobUA || coarse) document.documentElement.classList.add("is-mobile");
+  } catch (e) {}
+})();
+</script>
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<title>Francesco's Gate — Game</title>
+<!--
+  ============================================================================
+  FRANCESCO'S GATE — THE GAME
+  ============================================================================
+  MAP  (pink-cloud overworld):
+    - Francesco walks around (WASD / arrows / touch d-pad).
+    - Plane at the top is a SOLID obstacle (can't walk through it).
+    - Italian football sits on the left; walk near it -> a label appears
+      ("MAKE ITALY QUALIFY FOR WC"). Click it -> "Press E to enter". Press E ->
+      the red curtains drop, screen goes black, 3·2·1, then the LEVEL starts.
+    - Gas UI (top-right): X / 6. Beating a level grants 1 gas (once per level).
+
+  LEVEL (football maze):
+    - Football-field background; the CURSOR is the football (slightly smaller).
+    - Gapped walls scroll right -> left ("the moving maze"). Touch a wall = you
+      reset (flash + 3·2·1 again). Survive to the end -> walls clear, a GOAL
+      appears -> move onto it to WIN -> earn a gas -> curtains back to the map.
+
+  Sprites: assets/sprites/  ·  Art: assets/{plane,football,gas,curtains,field}
+  ============================================================================
+-->
+<style>
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #fff; font-family: "Courier New", ui-monospace, monospace;
+    user-select: none; touch-action: none;
+  }
+
+  /* ======================= MAP (overworld) ======================= */
+  .map {
+    position: fixed; inset: 0; background: #ffffff;
+    border: 3px solid #111; overflow: hidden;
+  }
+  .clouds { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+  .cloud { position: absolute; image-rendering: pixelated; pointer-events: none; }
+
+  /* Plane parked at the top (bigger; also a solid obstacle in JS). */
+  .plane {
+    position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+    width: min(64vw, 460px); height: auto;
+    image-rendering: pixelated; pointer-events: none; z-index: 2;
+    filter: drop-shadow(0 6px 6px rgba(0,0,0,0.12));
+  }
+
+  /* Italian football, lower-left. Clickable. */
+  .football {
+    position: absolute; left: 20%; top: 44%;
+    width: min(26vw, 130px); height: auto;
+    z-index: 3; cursor: pointer;
+    filter: drop-shadow(0 4px 5px rgba(0,0,0,0.18));
+  }
+  .football.near { animation: ballPulse 1s ease-in-out infinite; }
+  @keyframes ballPulse { 0%,100%{ transform: scale(1);} 50%{ transform: scale(1.06);} }
+
+  /* Matrix (Morpheus) object, sits under the ball. Clickable/enterable. */
+  .matrix {
+    position: absolute; left: 17%; top: 60%;
+    width: min(34vw, 168px); height: auto;
+    z-index: 3; cursor: pointer;
+  }
+  .matrix.near { animation: ballPulse 1s ease-in-out infinite; }
+
+  /* Parked motorbike, right side — enter the runner game. */
+  .ridebike {
+    position: absolute; left: 64%; top: 40%;
+    width: min(30vw, 165px); height: auto;
+    z-index: 3; cursor: pointer; image-rendering: pixelated;
+  }
+  .ridebike.near { animation: ballPulse 1s ease-in-out infinite; }
+
+  /* Laser-eyes Bibi portrait — enter the heist game. */
+  .lazer {
+    position: absolute; left: 44%; top: 68%;
+    width: min(24vw, 122px); height: auto; z-index: 3; cursor: pointer;
+    image-rendering: pixelated; border: 2px solid #0a3d91; border-radius: 8px;
+    box-shadow: 0 0 14px rgba(255,180,0,0.45);
+  }
+  .lazer.near { animation: ballPulse 1s ease-in-out infinite; }
+
+  /* Rhythm-game arcade tile. */
+  .rhythmobj {
+    position: absolute; left: 70%; top: 60%; width: min(30vw, 150px); height: auto; z-index: 3; cursor: pointer;
+    filter: drop-shadow(0 0 14px rgba(255,46,196,0.65));
+  }
+  .rhythmobj.near { animation: ballPulse 1s ease-in-out infinite; }
+
+  /* Label above the ball. */
+  .ball-label {
+    position: absolute; z-index: 11; display: none;
+    transform: translateX(-50%); text-align: center; pointer-events: none;
+    background: rgba(10,10,16,0.9); color: #fff; border: 1px solid #00e5ff;
+    border-radius: 8px; padding: 7px 12px; font-size: 0.82rem; font-weight: 700;
+    white-space: nowrap; box-shadow: 0 0 14px rgba(0,229,255,0.3);
+  }
+  .ball-label.show { display: block; animation: fadein .2s ease; }
+  .ball-label .name { display: block; }
+  .ball-label .sub { color: #9fe; font-weight: 400; font-size: 0.7rem; display: block; margin-top: 3px; }
+  .ball-label .ready { color: #00e5ff; font-weight: 700; font-size: 0.72rem; display: block; margin-top: 6px; animation: readyPulse 1s ease-in-out infinite; }
+  @keyframes readyPulse { 0%,100%{ opacity: 0.65; } 50%{ opacity: 1; } }
+  .ball-label::after {
+    content: ""; position: absolute; left: 50%; bottom: -7px; transform: translateX(-50%);
+    border: 6px solid transparent; border-top-color: #00e5ff;
+  }
+  @keyframes fadein { from{opacity:0} to{opacity:1} }
+
+  /* fuel readout shown when you walk up to the plane */
+  .plane-label {
+    position: absolute; z-index: 11; display: none; transform: translateX(-50%);
+    text-align: center; pointer-events: none; white-space: nowrap;
+    background: rgba(10,10,16,0.9); color: #ffd200; border: 1px solid #ffd200;
+    border-radius: 8px; padding: 8px 14px; font-size: 1rem; font-weight: 900; letter-spacing: 0.05em;
+    box-shadow: 0 0 14px rgba(255,210,0,0.4);
+  }
+  .plane-label.show { display: block; animation: fadein .2s ease; }
+  .plane-label .sub2 { display: block; font-weight: 400; font-size: 0.7rem; color: #cfe; margin-top: 3px; }
+
+  /* The player sprite. */
+  #player {
+    position: absolute; width: 116px; height: 116px;
+    image-rendering: pixelated; left: 0; top: 0;
+    will-change: transform; pointer-events: none; z-index: 4;
+  }
+
+  /* Gas UI (top-right). */
+  .gas-ui { position: fixed; top: 12px; right: 16px; z-index: 30; }
+  .gas-can { position: relative; width: 148px; height: 168px; filter: drop-shadow(0 3px 7px rgba(0,0,0,0.4)); cursor: help; }
+  /* hover list of fuel stops (minigames): done = highlighted, not done = dimmed */
+  .gas-list { position: absolute; top: 100%; right: 0; margin-top: 4px; width: 214px; padding: 8px;
+    background: rgba(8,10,18,0.94); border: 1px solid #2a3350; border-radius: 10px; box-shadow: 0 10px 24px rgba(0,0,0,0.55);
+    opacity: 0; transform: translateY(-6px); pointer-events: none; transition: opacity .18s ease, transform .18s ease; z-index: 31; }
+  .gas-ui:hover .gas-list { opacity: 1; transform: none; }
+  .gas-list-title { color: #ffcf5a; font-weight: 800; font-size: 0.62rem; letter-spacing: 0.2em; text-align: center; margin-bottom: 6px; }
+  .gas-row { display: flex; align-items: center; gap: 6px; font-size: 0.74rem; padding: 4px 7px; border-radius: 6px; color: #5c6784; }
+  .gas-row span { flex: 1; }
+  .gas-row.done { color: #eafff1; background: rgba(56,224,138,0.14); box-shadow: inset 0 0 0 1px rgba(56,224,138,0.4); }
+  .gas-row .chk { color: #38e08a; font-weight: 900; }
+  /* simple green "completed" check pinned to the bottom-left of a beaten game's sprite */
+  .gas-badge { position: absolute; z-index: 6; display: none; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 50%; font-size: 15px; font-weight: 900; line-height: 1;
+    color: #06120b; background: #38e08a; border: 2px solid #baffd6; box-shadow: 0 0 12px rgba(56,224,138,0.8); pointer-events: none; }
+  .gas-dark { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; filter: brightness(0.3) contrast(0.9) grayscale(0.4); }
+  /* fuel liquid, masked to the can silhouette so it stays inside the can */
+  .gas-liquid {
+    position: absolute; inset: 0; overflow: hidden;
+    -webkit-mask: url("assets/gas.png") center/contain no-repeat;
+            mask: url("assets/gas.png") center/contain no-repeat;
+  }
+  .gas-fill {
+    position: absolute; left: -14%; right: -14%; bottom: 0; height: 0;
+    background: linear-gradient(180deg, rgba(255,150,42,0.94), rgba(205,26,26,0.94));
+    transition: height 0.6s ease; will-change: height, transform;
+    animation: gasSlosh 2.6s ease-in-out infinite;   /* gentle side-to-side slosh */
+  }
+  /* animated wavy liquid surface */
+  .gas-wave {
+    position: absolute; left: 0; right: 0; top: -11px; height: 14px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='46' height='14'%3E%3Cpath d='M0,8 Q11.5,1 23,8 T46,8 V14 H0 Z' fill='%23ff963a'/%3E%3C/svg%3E") repeat-x;
+    background-size: 46px 14px;
+    animation: gasWave 1.4s linear infinite;
+  }
+  @keyframes gasWave { from { background-position-x: 0; } to { background-position-x: -46px; } }
+  @keyframes gasSlosh { 0%,100% { transform: translateX(-2px) rotate(-0.7deg); } 50% { transform: translateX(2px) rotate(0.7deg); } }
+
+  #muteBtn {
+    position: fixed; top: 34px; left: 12px; z-index: 30;
+    width: 42px; height: 42px; padding: 0; font-size: 1.1rem; border-radius: 50%;
+    background: rgba(10,10,16,0.85); color: #fff; border: 1px solid #333; cursor: pointer; opacity: 0.8;
+  }
+  #muteBtn:hover { opacity: 1; }
+
+  .dev-note { position: fixed; top: 8px; left: 12px; z-index: 20; font-size: 0.72rem; color: #999; }
+  .dev-note a { color: #4a90d9; }
+
+  /* On-screen d-pad (touch only). */
+  .dpad {
+    position: fixed; bottom: 22px; left: 22px; z-index: 25;
+    display: grid; grid-template-columns: repeat(3, 54px); grid-template-rows: repeat(3, 54px);
+    gap: 6px; opacity: 0.85;
+  }
+  .dpad button {
+    font-family: inherit; font-size: 1.3rem; font-weight: 700;
+    background: rgba(20,20,30,0.85); color: #fff; border: 1px solid #333;
+    border-radius: 10px; cursor: pointer;
+  }
+  .dpad button:active { background: #00e5ff; color: #061018; }
+  .dpad .up{grid-column:2;grid-row:1;} .dpad .left{grid-column:1;grid-row:2;}
+  .dpad .right{grid-column:3;grid-row:2;} .dpad .down{grid-column:2;grid-row:3;}
+  @media (hover: hover) and (pointer: fine) { .dpad { display: none; } }
+
+  /* ======================= TRANSITION ======================= */
+  /* Red curtains drop from the top to cover the screen. Kept off-screen (not
+     display:none) so the transform actually animates instead of jumping. */
+  #curtain {
+    position: fixed; inset: 0; z-index: 1100; pointer-events: none;
+    background: url("assets/curtains.jpg") center top / cover no-repeat;
+    transform: translateY(-100%); will-change: transform;
+  }
+  #curtain.drop { transition: transform 1.1s ease; transform: translateY(0); }
+
+  /* Blackout after the curtain — fades in at a medium speed (not instant).
+     Kept present (not display:none) so the opacity transition actually runs. */
+  #blackout { position: fixed; inset: 0; z-index: 1150; background: #000; opacity: 0; pointer-events: none; transition: opacity .8s ease; }
+  #blackout.on { opacity: 1; }
+
+  /* Countdown 3·2·1. */
+  #countdown {
+    position: fixed; inset: 0; z-index: 1200; display: none;
+    align-items: center; justify-content: center; color: #fff;
+    font-size: clamp(4rem, 20vw, 9rem); font-weight: 900; text-shadow: 0 0 30px #00e5ff;
+  }
+  #countdown.on { display: flex; }
+  #countdown .n { animation: pop .6s ease; }
+  @keyframes pop { 0%{ transform: scale(0.4); opacity: 0;} 40%{ transform: scale(1.15); opacity: 1;} 100%{ transform: scale(1); opacity: 1;} }
+
+  /* ---- unlock announcement ---- */
+  #unlockBanner {
+    position: fixed; inset: 0; z-index: 1300; display: none;
+    align-items: center; justify-content: center; background: rgba(2,6,14,0.72);
+    opacity: 0; transition: opacity .45s ease;
+  }
+  #unlockBanner.show { display: flex; opacity: 1; }
+  .unlock-card {
+    text-align: center; padding: 34px 46px; border-radius: 18px;
+    background: linear-gradient(160deg, #10233f, #0a1526);
+    border: 2px solid #38e0ff; box-shadow: 0 0 46px rgba(56,224,255,0.5), inset 0 0 30px rgba(56,224,255,0.12);
+    transform: scale(0.6) translateY(24px); opacity: 0; transition: transform .5s cubic-bezier(.2,1.3,.4,1), opacity .5s ease;
+  }
+  #unlockBanner.show .unlock-card { transform: scale(1) translateY(0); opacity: 1; }
+  .unlock-eyebrow { color: #7fe9ff; letter-spacing: 0.35em; font-size: 0.82rem; font-weight: 700; margin-bottom: 12px; animation: unlockGlow 1.4s ease-in-out infinite; }
+  @keyframes unlockGlow { 0%,100%{opacity:.6;} 50%{opacity:1;} }
+  .unlock-name {
+    color: #fff; font-size: clamp(1.6rem, 6vw, 3rem); font-weight: 900; letter-spacing: 0.04em;
+    text-shadow: 0 0 24px rgba(56,224,255,0.8);
+  }
+  .unlock-dismiss { margin-top: 20px; color: rgba(255,255,255,0.4); font-size: 0.8rem; min-height: 1em; letter-spacing: 0.12em; }
+
+  /* ---- directional arrow that points to the newly unlocked game ---- */
+  #unlockArrow {
+    position: absolute; z-index: 6; display: none; pointer-events: none;
+    font-size: 44px; color: #ffd23e; text-shadow: 0 0 14px rgba(255,210,62,0.9), 0 2px 4px rgba(0,0,0,0.6);
+    transform: translate(-50%, -50%);
+  }
+  #unlockArrow.show { display: block; }
+  #unlockArrow span { display: inline-block; animation: arrowPulse .7s ease-in-out infinite; }
+  @keyframes arrowPulse { 0%,100%{ transform: scale(1);} 50%{ transform: scale(1.35);} }
+
+  /* ---- endgame takeoff cutscene ---- */
+  #endgame { position: fixed; inset: 0; z-index: 1400; display: none; background: #000; }
+  #endgame.show { display: flex; align-items: center; justify-content: center; }
+  /* the AI clip is portrait/phone-ratio. Give the element its OWN aspect-ratio
+     box (so it letterboxes as black side-bars with no internal cropping), then
+     shave the top edge with clip-path to hide the "DeeVid AI" watermark. */
+  #endVideo {
+    position: relative; aspect-ratio: 496 / 864; max-width: 100%; max-height: 100%;
+    width: auto; height: auto; object-fit: cover; background: #000;
+    clip-path: inset(8% 0 0 0);
+    opacity: 0; transition: opacity 1s ease;
+  }
+  #endVideo.show { opacity: 1; }
+  #endThanks {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    opacity: 0; transition: opacity 1s ease; text-align: center; padding: 24px;
+  }
+  #endThanks.show { opacity: 1; }
+  #endThanks span {
+    font-family: "Snell Roundhand", "Segoe Script", "Brush Script MT", cursive;
+    font-size: clamp(2.2rem, 9vw, 5rem); color: #fff; font-style: italic;
+    text-shadow: 0 0 26px rgba(255,255,255,0.55);
+  }
+  /* iris-out: a black ring that closes in from the edges to a point (old-cartoon style) */
+  #endIris {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(circle at 50% 50%, transparent 0, transparent var(--iris, 150%), #000 var(--iris, 150%));
+    transition: none;
+  }
+  #endIris.close { transition: --iris 5.5s ease-in-out; --iris: 0%; }
+  @property --iris { syntax: '<percentage>'; inherits: false; initial-value: 150%; }
+  /* replay button — appears a few seconds after the iris closes */
+  #endReplay {
+    position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(0.9);
+    z-index: 2; display: none; opacity: 0; transition: opacity .6s ease, transform .6s ease;
+    font-family: inherit; cursor: pointer; font-size: 1.05rem; font-weight: 800; letter-spacing: 0.04em;
+    color: #eafcff; background: rgba(12,28,44,0.9); border: 2px solid #38e0ff; border-radius: 999px;
+    padding: 14px 30px; box-shadow: 0 0 30px rgba(56,224,255,0.45);
+  }
+  #endReplay.show { display: inline-block; opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  #endReplay:hover { background: rgba(20,48,72,0.95); box-shadow: 0 0 40px rgba(56,224,255,0.7); }
+  #endReplay span { font-weight: 400; opacity: 0.7; }
+
+  /* ======================= LEVEL (football pitch) ======================= */
+  #level {
+    position: fixed; inset: 0; z-index: 1000; display: none;
+    background: url("assets/field.jpg") center center / cover no-repeat;
+    cursor: none; overflow: hidden;
+  }
+  #level.on { display: block; }
+  #level.flash { animation: hitFlash .35s ease; }
+  /* animated pitch overlay: mown stripes + a bright center line & circle so it
+     really reads as a stadium field, plus a soft vignette for depth */
+  .pitch-overlay {
+    position: absolute; inset: 0; pointer-events: none; z-index: 1001;
+    background:
+      radial-gradient(120% 80% at 50% 50%, transparent 55%, rgba(2,20,6,0.55) 100%),
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.045) 0 90px, rgba(0,0,0,0.05) 90px 180px);
+  }
+  .pitch-overlay::before {            /* halfway line */
+    content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 3px;
+    background: rgba(255,255,255,0.25); transform: translateX(-50%);
+  }
+  .pitch-overlay::after {             /* center circle */
+    content: ""; position: absolute; left: 50%; top: 50%; width: 200px; height: 200px;
+    border: 3px solid rgba(255,255,255,0.22); border-radius: 50%; transform: translate(-50%,-50%);
+  }
+  .level-hint {
+    position: fixed; bottom: 10px; right: 14px; z-index: 1020;
+    color: rgba(255,255,255,0.8); font-size: 0.72rem; letter-spacing: 0.04em;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.9); pointer-events: none;
+  }
+  @keyframes hitFlash { 0%,100%{ box-shadow: inset 0 0 0 rgba(255,0,0,0);} 40%{ box-shadow: inset 0 0 240px rgba(255,0,0,0.7);} }
+
+  /* ---- HUD ---- */
+  .level-hud {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1015; pointer-events: none;
+    display: flex; align-items: flex-start; justify-content: space-between;
+    padding: 14px 18px; gap: 16px;
+    font-family: "Trebuchet MS", system-ui, sans-serif;
+  }
+  .hud-lives { display: flex; gap: 6px; font-size: 26px; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.6)); }
+  .hud-lives .life { transition: opacity .3s, transform .3s; }
+  .hud-lives .life.lost { opacity: 0.18; transform: scale(0.8); filter: grayscale(1); }
+  .hud-center { flex: 1; max-width: 460px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .hud-wave { display: flex; gap: 9px; align-items: center; color: #fff; font-weight: 800; letter-spacing: 0.14em; font-size: 0.78rem; text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
+  .hud-wave .pip { width: 12px; height: 12px; border-radius: 50%; background: rgba(255,255,255,0.28); border: 2px solid rgba(255,255,255,0.5); }
+  .hud-wave .pip.on { background: #38e08a; border-color: #b9ffd8; box-shadow: 0 0 10px rgba(56,224,138,0.9); }
+  .hud-progress {
+    position: relative; width: 100%; height: 14px; border-radius: 999px;
+    background: rgba(0,0,0,0.4); border: 2px solid rgba(255,255,255,0.35); overflow: hidden;
+  }
+  .hud-progress-fill {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 0%;
+    background: linear-gradient(90deg, #009246, #ffffff 50%, #ce2b37); transition: width .25s ease;  /* Italy tricolore */
+  }
+  .hud-progress .ball-marker { position: absolute; top: 50%; transform: translate(-50%,-50%); font-size: 15px; transition: left .25s ease; }
+  .hud-right { min-width: 90px; }   /* spacer to keep the wave meter centred */
+
+  /* ---- defender walls ---- */
+  .wall {
+    position: absolute; left: 0; width: 70px; will-change: transform; border-radius: 8px;
+    background-color: #111;
+    background-image: repeating-conic-gradient(#0d0d0d 0 25%, #f4f4f4 0 50%);   /* black & white checkerboard */
+    background-size: 34px 34px;
+    box-shadow: inset 0 0 0 2px rgba(0,0,0,0.45), 0 6px 16px rgba(0,0,0,0.5);
+  }
+  .wall.wall-top { border-radius: 8px 8px 12px 12px; }
+  .wall.wall-bot { border-radius: 12px 12px 8px 8px; }
+  /* glowing edge that faces the gap-lane (bottom of top wall, top of bottom wall) */
+  .wall::after {
+    content: ""; position: absolute; left: 0; right: 0; height: 5px;
+    background: #38e08a; box-shadow: 0 0 14px 3px rgba(56,224,138,0.85); border-radius: 6px;
+    animation: laneGlow 1.1s ease-in-out infinite;
+  }
+  .wall.wall-top::after { bottom: 0; }
+  .wall.wall-bot::after { top: 0; }
+  @keyframes laneGlow { 0%,100%{ opacity: 0.55; } 50%{ opacity: 1; } }
+
+  /* football cursor + spin + motion trail */
+  #ballCursor {
+    position: fixed; left: 0; top: 0; z-index: 1010; width: 84px; height: 84px;
+    object-fit: contain;                 /* source is 4:3 — keep the ball a perfect circle */
+    transform-origin: 50% 45%;           /* the ball sits ~45% down the frame — spin around ITS centre, no wobble */
+    display: none; pointer-events: none; will-change: transform;
+    filter: drop-shadow(0 4px 5px rgba(0,0,0,0.5));
+  }
+  #ballCursor.invuln { animation: ballBlink .18s steps(2) infinite; }
+  @keyframes ballBlink { 0%{ opacity: 1;} 100%{ opacity: 0.35;} }
+  .ball-trail {
+    position: fixed; left: 0; top: 0; z-index: 1009; width: 34px; height: 34px; border-radius: 50%;
+    display: none; pointer-events: none; will-change: transform, opacity;
+    background: radial-gradient(circle at 50% 40%, rgba(255,255,255,0.9), rgba(255,255,255,0.05) 70%);
+  }
+
+  /* the goal that appears at the end */
+  #goal {
+    position: absolute; z-index: 1005; display: none;
+    width: 168px; height: 128px;
+  }
+  #goal.on { display: block; animation: pop .5s ease; }
+  .goal-frame { position: absolute; inset: 0; border: 8px solid #fff; border-bottom: none; border-radius: 6px 6px 0 0; box-shadow: 0 0 22px rgba(255,255,255,0.85); }
+  .goal-net { position: absolute; inset: 8px 8px 0 8px; background:
+      repeating-linear-gradient(90deg, rgba(255,255,255,0.55) 0 1px, transparent 1px 13px),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.55) 0 1px, transparent 1px 13px);
+    animation: netSway 2s ease-in-out infinite; }
+  @keyframes netSway { 0%,100%{ transform: skewX(0deg);} 50%{ transform: skewX(-2.5deg);} }
+  .goal-keeper { position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); font-size: 40px; animation: keeperGuard 1.3s ease-in-out infinite; }
+  @keyframes keeperGuard { 0%,100%{ transform: translateX(-140%);} 50%{ transform: translateX(40%);} }
+  .goal-label { position: absolute; top: -28px; width: 100%; text-align: center; color: #fff; font-weight: 900; letter-spacing: 0.12em; text-shadow: 0 0 10px #000; animation: laneGlow 1s ease-in-out infinite; }
+
+  #levelMsg {
+    position: fixed; inset: 0; z-index: 1300; display: none;
+    align-items: center; justify-content: center; flex-direction: column;
+    color: #fff; text-align: center; pointer-events: none;
+  }
+  #levelMsg.on { display: flex; }
+  #levelMsg .big { font-size: clamp(2.4rem, 12vw, 5rem); font-weight: 900; text-shadow: 0 0 24px #38e08a; }
+  #levelMsg .small { font-size: 1rem; color: #cfe; margin-top: 10px; }
+  /* confetti burst on the winning goal */
+  .confetti { position: fixed; top: -20px; width: 10px; height: 16px; z-index: 1290; pointer-events: none; border-radius: 2px; }
+
+  /* ======================= ATLAS GAME ======================= */
+  #atlas {
+    position: fixed; inset: 0; z-index: 1000; visibility: hidden; opacity: 0;
+    transition: opacity .45s ease; background: #03060a; overflow: hidden;
+    color: #8CFC9D; font-family: "Courier New", ui-monospace, monospace;
+  }
+  #atlas.on { visibility: visible; opacity: 1; }
+  #matrixRain { position: absolute; inset: 0; z-index: 0; opacity: 0.45; }
+  .atlas-hint { position: fixed; bottom: 10px; right: 14px; z-index: 6; color: rgba(140,252,157,0.65); font-size: 0.72rem; pointer-events: none; }
+
+  .atlas-panel {
+    position: absolute; inset: 0; z-index: 2;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 24px 18px; text-align: center;
+  }
+  .atlas-title {
+    font-size: clamp(2.4rem, 12vw, 5rem); font-weight: 900; letter-spacing: 0.12em;
+    color: #b8ffca; margin-bottom: 12px;
+  }
+  /* glitchy broken text */
+  .glitch { position: relative; text-shadow: 2px 0 #21d07a, -2px 0 #00e5ff; animation: gflick 3s steps(40) infinite; }
+  .glitch::before, .glitch::after {
+    content: attr(data-text); position: absolute; left: 0; top: 0; width: 100%; overflow: hidden;
+  }
+  .glitch::before { color: #ff2e88; transform: translate(-2px,0); clip-path: inset(0 0 55% 0); animation: gshift 2.2s infinite linear alternate; }
+  .glitch::after  { color: #00e5ff; transform: translate(2px,0);  clip-path: inset(55% 0 0 0); animation: gshift 1.7s infinite linear alternate; }
+  @keyframes gflick { 0%,92%,100%{opacity:1;} 93%{opacity:.6;} 96%{opacity:1;} }
+  @keyframes gshift { 0%{transform:translate(-2px,0);} 100%{transform:translate(3px,0);} }
+
+  .atlas-text { font-size: clamp(1rem, 3.6vw, 1.35rem); max-width: 620px; line-height: 1.5; color: #cfeede; margin: 6px 0; }
+  .atlas-text b { color: #b8ffca; }
+  .atlas-text.dim { color: #6fae82; font-size: 0.95rem; }
+  .atlas-press { margin-top: 22px; color: #00e5ff; font-weight: 700; letter-spacing: 0.05em; animation: readyBlink 1s ease-in-out infinite; }
+  @keyframes readyBlink { 0%,100%{opacity:.55;} 50%{opacity:1;} }
+
+  .atlas-topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; max-width: 640px; width: 100%; margin-bottom: 12px; }
+  .atlas-progress { color: #6fae82; letter-spacing: 0.2em; font-size: 0.9rem; }
+  .atlas-lang {
+    color: #062011; background: #38e08a; font-weight: 800; font-size: 0.8rem; letter-spacing: 0.08em;
+    padding: 4px 12px; border-radius: 999px; box-shadow: 0 0 12px rgba(56,224,138,0.4);
+  }
+  .atlas-hintrow { display: flex; flex-direction: column; align-items: center; gap: 8px; margin-top: 14px; max-width: 640px; width: 100%; }
+  .atlas-hintbtn {
+    font-family: inherit; cursor: pointer; background: rgba(30,20,4,0.7); color: #ffd97a;
+    border: 1px solid #b98a2a; border-radius: 8px; padding: 7px 16px; font-size: 0.9rem; transition: all .12s;
+  }
+  .atlas-hintbtn:hover { border-color: #ffd97a; box-shadow: 0 0 12px rgba(255,217,122,0.3); }
+  .atlas-hintbtn.spent { opacity: .45; cursor: default; }
+  .atlas-hint { min-height: 0; color: #ffd97a; font-size: 0.9rem; line-height: 1.45; max-width: 600px; text-align: center; }
+  .atlas-hint.show { min-height: 1.2em; }
+  .atlas-q {
+    background: rgba(0,20,8,0.55); border: 1px solid #164a2c;
+    border-radius: 10px; padding: 16px 18px; max-width: 640px; width: 100%;
+    color: #d6ffe4; font-size: 1.05rem; line-height: 1.5; margin-bottom: 16px;
+  }
+  .atlas-q pre {
+    background: #04120a; border: 1px solid #0d3a22; border-radius: 6px; padding: 10px 12px;
+    margin: 10px 0 0; text-align: left; color: #9dffbe; font-size: 0.95rem; white-space: pre-wrap; overflow-x: auto;
+  }
+  .atlas-answers { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 640px; width: 100%; }
+  .atlas-answers.stack { flex-direction: column; align-items: stretch; }
+  .atlas-opt {
+    font-family: inherit; cursor: pointer; background: rgba(10,30,18,0.8); color: #d6ffe4;
+    border: 1px solid #1f6b40; border-radius: 8px; padding: 12px 16px; font-size: 1rem; transition: all .12s;
+  }
+  .atlas-opt:hover { border-color: #38e08a; box-shadow: 0 0 12px rgba(56,224,138,0.3); }
+  .atlas-opt.sel { border-color: #00e5ff; background: rgba(0,60,60,0.6); color: #bff; }
+  .atlas-opt.right { border-color: #38e08a; background: rgba(20,80,40,0.7); }
+  .atlas-opt.wrong { border-color: #ff3b5c; background: rgba(80,20,30,0.7); animation: shakeX .35s; }
+  @keyframes shakeX { 0%,100%{transform:translateX(0);} 25%{transform:translateX(-5px);} 75%{transform:translateX(5px);} }
+  .atlas-blank {
+    font-family: inherit; background: #04120a; border: 1px solid #1f6b40; color: #9dffbe;
+    border-radius: 8px; padding: 12px 14px; font-size: 1.1rem; text-align: center; width: min(80vw, 320px);
+  }
+  .atlas-blank:focus { outline: none; border-color: #38e08a; box-shadow: 0 0 12px rgba(56,224,138,0.3); }
+  /* order tokens (tap to place into the slots) */
+  .atlas-slots { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 12px; min-height: 48px; }
+  .atlas-slot { min-width: 54px; height: 44px; border: 2px dashed #1f6b40; border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 0 8px; color: #9dffbe; }
+  .atlas-slot.filled { border-style: solid; border-color: #38e08a; cursor: pointer; }
+  .atlas-token { cursor: pointer; background: rgba(10,30,18,0.85); border: 1px solid #2a8a55; border-radius: 8px; padding: 10px 14px; color: #d6ffe4; }
+  .atlas-token:hover { border-color: #38e08a; }
+  .atlas-token.used { opacity: .3; pointer-events: none; }
+
+  .atlas-btn {
+    margin-top: 16px; font-family: inherit; cursor: pointer; font-size: 1rem; font-weight: 700;
+    background: #0a3d24; color: #d6ffe4; border: 1px solid #38e08a; border-radius: 8px; padding: 12px 26px;
+    box-shadow: 0 0 14px rgba(56,224,138,0.25);
+  }
+  .atlas-btn:hover { background: #0e5533; }
+  .atlas-btn.pink { background: #ff5b9c; border-color: #ff8dbc; color: #2a0f1c; box-shadow: 0 0 16px rgba(255,91,156,0.5); }
+  .atlas-feedback { min-height: 1.5em; margin-top: 12px; font-size: 0.95rem; }
+  .atlas-feedback.ok { color: #38e08a; } .atlas-feedback.err { color: #ff3b5c; }
+
+  /* ---- roulette (soft pink) ---- */
+  .atlas-panel.roulette { background: #ffd8e6; color: #4a2233; z-index: 3; }
+  .roulette-title {
+    font-family: "Brush Script MT","Snell Roundhand",cursive; font-size: clamp(2.6rem, 12vw, 4.5rem);
+    color: #d6336c; text-shadow: 0 2px 0 #fff, 0 4px 10px rgba(214,51,108,0.3); margin-bottom: 18px;
+  }
+  .wheel-wrap { position: relative; width: min(78vw, 320px); height: min(78vw, 320px); }
+  .wheel-pointer {
+    position: absolute; top: -4px; left: 50%; transform: translateX(-50%); z-index: 5;
+    width: 0; height: 0; border: 14px solid transparent; border-top-color: #c1121f; border-top-width: 22px;
+  }
+  .wheel {
+    width: 100%; height: 100%; border-radius: 50%; overflow: hidden;
+    border: 8px solid #fff; box-shadow: 0 0 0 5px #d6336c, 0 10px 26px rgba(0,0,0,0.25);
+    transition: transform 4.3s cubic-bezier(.15,.7,.12,1);
+  }
+  .roulette-msg { margin-top: 18px; min-height: 1.6em; font-size: 1.15rem; font-weight: 700; }
+  .roulette-msg.win { color: #1a7a3f; } .roulette-msg.lose { color: #b0324f; }
+
+  /* ======================= RUNNER GAME ======================= */
+  #runner {
+    position: fixed; inset: 0; z-index: 1000; display: none; overflow: hidden;
+    background: linear-gradient(#8ec5ff, #d9ecff); font-family: "Courier New", monospace;
+  }
+  #runner.on { display: block; }
+  #runner.flash { animation: hitFlash .35s ease; }
+  .run-sky { position: absolute; top: 0; left: 0; right: 0; height: 74%; overflow: hidden; }
+  .run-sky img { position: absolute; top: 0; height: 100%; width: auto; image-rendering: pixelated; will-change: left; }
+  .run-sun { position: absolute; top: 5%; right: 11%; width: 62px; height: 62px; border-radius: 50%; background: radial-gradient(circle,#fff6c0,#ffd84d); box-shadow: 0 0 42px rgba(255,216,77,0.75); z-index: 1; }
+  .run-road { position: absolute; left: 0; right: 0; bottom: 0; height: 26%; background: #141419; border-top: 5px solid #2c2c33; overflow: hidden; z-index: 2; }
+  .run-dashes { position: absolute; top: 46%; left: 0; width: 300%; height: 7px; background: repeating-linear-gradient(90deg, #f5c518 0 48px, transparent 48px 96px); will-change: transform; }
+  #rider { position: absolute; image-rendering: pixelated; z-index: 5; }
+  .run-obstacle { position: absolute; left: 0; image-rendering: pixelated; z-index: 4; will-change: transform; }
+  /* hanging caution barrier (duck under it) */
+  .run-barrier { position: absolute; left: 0; z-index: 4; will-change: transform; border-radius: 5px;
+    background: repeating-linear-gradient(45deg, #ffd23e 0 16px, #17171c 16px 32px);
+    border: 3px solid #111; box-shadow: 0 0 18px rgba(255,210,62,0.55), inset 0 0 12px rgba(0,0,0,0.45); }
+  .run-barrier::before { content: "⚠"; position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); font-size: 1.5rem; text-shadow: 0 1px 3px #000; }
+  .run-barrier::after { content: ""; position: absolute; bottom: 100%; left: 10px; right: 10px; height: 100vh;
+    background: repeating-linear-gradient(90deg, #555 0 3px, transparent 3px 30px); opacity: 0.55; }
+
+  .run-timer {
+    position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 8;
+    background: rgba(0,0,0,0.55); color: #fff; font-weight: 900; font-size: 1.4rem;
+    padding: 6px 18px; border-radius: 10px; letter-spacing: 0.08em;
+  }
+  /* survival progress bar toward the finish */
+  .run-progress { position: fixed; top: 54px; left: 50%; transform: translateX(-50%); z-index: 8;
+    width: min(64vw, 380px); height: 13px; background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 999px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.4); }
+  .run-progress-fill { height: 100%; width: 0%; border-radius: 999px; transition: width .2s linear;
+    background: linear-gradient(90deg, #ff5b9c, #ffd23e, #38e08a); box-shadow: 0 0 12px rgba(255,210,62,0.7); }
+  .run-progress .flag { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); font-size: 12px; }
+  .run-hint { position: fixed; bottom: 8px; left: 50%; transform: translateX(-50%); z-index: 8; color: rgba(255,255,255,0.85); font-size: 0.72rem; text-shadow: 0 1px 3px #000; }
+  .run-msg { position: fixed; inset: 0; z-index: 9; display: none; align-items: center; justify-content: center; flex-direction: column; text-align: center; color: #fff; text-shadow: 0 2px 12px #000; pointer-events: none; }
+  .run-msg.on { display: flex; }
+  .run-msg .big { font-size: clamp(2.2rem, 11vw, 4.6rem); font-weight: 900; }
+  .run-msg .small { font-size: 1.05rem; margin-top: 8px; }
+
+  .run-controls { position: fixed; bottom: 30px; left: 0; right: 0; z-index: 8; display: flex; justify-content: space-between; padding: 0 26px; pointer-events: none; }
+  .run-controls button {
+    pointer-events: auto; font-family: inherit; font-weight: 700; font-size: 1rem;
+    background: rgba(0,0,0,0.55); color: #fff; border: 1px solid #666; border-radius: 14px; padding: 16px 24px;
+  }
+  .run-controls button:active { background: #00e5ff; color: #04121a; }
+  @media (hover: hover) and (pointer: fine) { .run-controls { display: none; } }
+
+  /* ======================= HEIST — BANK OF BIBI VAULT ======================= */
+  #heist { position: fixed; inset: 0; z-index: 1000; display: none; overflow: hidden; background: #0a0d14; }
+  #heist.on { display: block; }
+  #heist.flash { animation: hitFlash .3s ease; }
+  #heist.steal-flash { animation: stealFlash .5s ease; }
+  #heist.shake { animation: heistShake .4s ease; }
+  @keyframes stealFlash { 0%,100%{ box-shadow: inset 0 0 0 rgba(255,215,0,0);} 40%{ box-shadow: inset 0 0 260px rgba(255,215,0,0.75);} }
+  @keyframes heistShake { 0%,100%{transform:translate(0,0);} 20%{transform:translate(-8px,4px);} 40%{transform:translate(7px,-5px);} 60%{transform:translate(-5px,6px);} 80%{transform:translate(6px,-3px);} }
+
+  /* ---- vault scene (behind the world) ---- */
+  .heist-bg { position: absolute; inset: 0; overflow: hidden;
+    background: radial-gradient(130% 95% at 50% 8%, #26324c 0%, #151b2b 44%, #090c13 100%); }
+  .heist-bg::before { content:""; position:absolute; left:0; right:0; bottom:0; height:54px;   /* marble + gold floor band */
+    background: linear-gradient(#caa23c, #7d6019);
+    box-shadow: 0 -3px 0 #ffe08a, 0 -12px 26px rgba(0,0,0,0.55); }
+  .heist-bg::after { content:""; position:absolute; inset:0; pointer-events:none;              /* vignette */
+    background: radial-gradient(125% 100% at 50% 42%, transparent 52%, rgba(0,0,0,0.62) 100%); }
+  .vault-grid { position:absolute; inset:0 0 54px 0; pointer-events:none; opacity:0.15; z-index:0; mix-blend-mode:screen;
+    background-image: repeating-linear-gradient(115deg, rgba(255,44,44,0.9) 0 1px, transparent 1px 48px),
+                      repeating-linear-gradient(65deg, rgba(255,44,44,0.9) 0 1px, transparent 1px 48px);
+    animation: gridDrift 9s linear infinite; }
+  @keyframes gridDrift { to { background-position: 48px 0, -48px 0; } }
+  .vault-sign { position:absolute; left:50%; top:52px; transform:translateX(-50%); z-index:1; white-space:nowrap;
+    font-family:"Trebuchet MS",sans-serif; font-weight:900; letter-spacing:0.14em; font-size:clamp(0.85rem,3vw,1.4rem);
+    color:#ffe08a; text-shadow:0 0 10px #ffb400, 0 0 24px rgba(255,180,0,0.6); }
+  .vault-cam { position:absolute; left:24px; top:56px; z-index:1; font-size:1.7rem; transform-origin:50% 15%; filter:drop-shadow(0 2px 3px #000); animation: camPan 4.2s ease-in-out infinite; }
+  @keyframes camPan { 0%,100%{transform:rotate(-24deg);} 50%{transform:rotate(24deg);} }
+  #heist.alarm .heist-bg { animation: alarmBg .7s steps(2) infinite; }
+  @keyframes alarmBg { 0%{filter:none;} 100%{filter:hue-rotate(-28deg) brightness(1.12) saturate(1.5);} }
+  .heist-alarm { position:absolute; inset:0; z-index:6; pointer-events:none; opacity:0;
+    background: radial-gradient(125% 100% at 50% 50%, transparent 38%, rgba(255,0,0,0.36) 100%); }
+  #heist.alarm .heist-alarm { animation: alarmPulse .8s ease-in-out infinite; }
+  @keyframes alarmPulse { 0%,100%{opacity:0.12;} 50%{opacity:0.62;} }
+  .heist-spotlight { position:absolute; top:-40%; width:230px; height:200%; z-index:3; pointer-events:none; display:none; mix-blend-mode:screen;
+    background: radial-gradient(closest-side ellipse, rgba(255,244,200,0.34), rgba(255,244,200,0.07) 68%, transparent 80%); }
+  .heist-spotlight.on { display:block; }
+
+  /* ---- platforms & obstacles ---- */
+  .heist-world { position: absolute; inset: 0; z-index: 2; will-change: transform; }
+  .h-plat { position: absolute; border-radius: 4px;
+    background: linear-gradient(#2f384f, #191f2f);
+    border-top: 3px solid #d4af37; box-shadow: inset 0 2px 0 rgba(255,224,138,0.45), 0 6px 14px rgba(0,0,0,0.5); }
+  .h-plat.gold { background: repeating-linear-gradient(90deg,#ffcf5a 0 20px,#d29f22 20px 22px); border-top-color:#fff3c4; box-shadow: inset 0 2px 0 #fff3c4, 0 0 14px rgba(255,200,60,0.5), 0 6px 14px rgba(0,0,0,0.5); }
+  .h-plat.mover { box-shadow: inset 0 2px 0 rgba(255,224,138,0.45), 0 0 14px rgba(0,229,255,0.4), 0 6px 14px rgba(0,0,0,0.5); border-top-color:#8ee7ff; }
+  .h-plat.collapse { background: linear-gradient(#4a3a1e,#241b0c); border-top-color:#b98a2a; }
+  .h-plat.collapse.warn { animation: tileShake .28s linear infinite; }
+  @keyframes tileShake { 0%,100%{transform:translateX(0);} 25%{transform:translateX(3px);} 75%{transform:translateX(-3px);} }
+  .h-switch { position: absolute; z-index: 3; border-radius: 5px; background:#5a1020; border:2px solid #ff6b6b; box-shadow:0 0 10px rgba(255,60,60,0.6); }
+  .h-switch.on { background:#0a7d2c; border-color:#7dffa8; box-shadow:0 0 16px rgba(70,255,130,0.9); }
+  .h-cage { position:absolute; z-index:4; border-radius:3px;
+    background: repeating-linear-gradient(0deg, rgba(255,44,44,0.95) 0 3px, rgba(255,44,44,0.12) 3px 13px);
+    box-shadow: 0 0 18px rgba(255,44,44,0.75); }
+  /* security laser BEAM hazard (blinks / sweeps) */
+  .h-beam { position:absolute; z-index:4; border-radius:5px;
+    background: linear-gradient(90deg, rgba(255,60,60,0.15), #ff2b2b 45%, #ffd0d0, #ff2b2b 55%, rgba(255,60,60,0.15));
+    box-shadow: 0 0 16px 3px rgba(255,43,43,0.85); }
+  .h-beam.v { background: linear-gradient(0deg, rgba(255,60,60,0.15), #ff2b2b 45%, #ffd0d0, #ff2b2b 55%, rgba(255,60,60,0.15)); }
+  .h-beam.off { opacity:0.14; box-shadow:none; }
+  .h-emitter { position:absolute; z-index:4; width:12px; height:12px; border-radius:50%; background:radial-gradient(circle,#fff,#c40000); box-shadow:0 0 8px #ff2b2b; }
+  /* boss charged sweep-beam (reuses .h-laser) */
+  .h-laser { position:absolute; z-index:4; height:26px; border-radius:8px; transform-origin:left center;
+    background: linear-gradient(90deg, rgba(255,120,0,0.05), #ff5a00, #ffe100, #ff5a00, rgba(255,120,0,0.05));
+    box-shadow: 0 0 28px 7px rgba(255,90,0,0.85); }
+  .h-laser.charge { height:3px; opacity:0.55; box-shadow:0 0 10px #ff5a00; animation: chargeFlick .12s steps(2) infinite; }
+  @keyframes chargeFlick { 0%{opacity:.3;} 100%{opacity:.7;} }
+  .h-spike { position:absolute; z-index:3; border-radius:2px;
+    background: repeating-linear-gradient(90deg, #ff2b2b 0 4px, #7a0c0c 4px 9px);
+    box-shadow: 0 0 12px rgba(255,43,43,0.8); }
+  .h-exit { position: absolute; z-index: 4; display: flex; flex-direction: column; align-items: center; font-size: 2.6rem; }
+  .h-exit .lbl { font-size: 0.72rem; font-weight: 900; color:#04121a; background:#ffcf5a; padding: 2px 9px; border-radius: 6px; box-shadow: 0 0 12px rgba(255,200,60,0.7); animation: readyBlink 1s ease-in-out infinite; }
+  .heist-boss { position: absolute; image-rendering: pixelated; z-index: 4; filter: drop-shadow(0 5px 12px rgba(0,0,0,0.5)); }
+  .heist-boss.sleep { animation: bossSleep 2.4s ease-in-out infinite; }
+  .heist-boss.awake { filter: drop-shadow(0 0 14px rgba(255,40,40,0.9)) drop-shadow(0 5px 12px rgba(0,0,0,0.5)); }
+  @keyframes bossSleep { 0%,100%{ transform: translateY(0);} 50%{ transform: translateY(-5px);} }
+  .heist-player { position: absolute; image-rendering: pixelated; z-index: 5; }
+  .heist-player.hurt { animation: hurtBlink .16s steps(2) infinite; }
+  @keyframes hurtBlink { 0%{opacity:1;} 100%{opacity:0.3;} }
+  .h-particle { position: absolute; image-rendering: pixelated; z-index: 3; pointer-events: none; }
+  .h-proj { position: absolute; z-index: 4; height: 9px; border-radius: 5px; background: linear-gradient(90deg,#ffe100,#ff3b00); box-shadow: 0 0 12px #ff6a00; }
+  .h-shout { position: absolute; z-index: 6; font-weight: 900; color: #fff; text-shadow: 0 2px 4px #b0090f, 0 0 8px #ff3b00; pointer-events: none; white-space: nowrap; }
+
+  .heist-hud { position: fixed; top: 12px; left: 0; right: 0; z-index: 8; display:flex; align-items:center; justify-content:space-between; gap:14px; padding: 0 18px; pointer-events:none; font-family:"Trebuchet MS",system-ui,sans-serif; }
+  .hh-hearts { font-size: 24px; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.7)); min-width:120px; }
+  .hh-hearts .hp { transition: opacity .3s, transform .3s; }
+  .hh-hearts .hp.lost { opacity:0.18; transform:scale(0.82); filter:grayscale(1); }
+  .hh-obj { flex:1; text-align:center; color:#ffe08a; font-weight:800; font-size:0.92rem; letter-spacing:0.04em; text-shadow:0 2px 6px #000; }
+  .hh-haul { min-width:120px; text-align:right; color:#7dffa8; font-weight:900; font-size:1.2rem; text-shadow:0 2px 6px #000; }
+  .hh-haul .lbl { display:block; font-size:0.54rem; letter-spacing:0.2em; color:#cfe; opacity:0.8; font-weight:700; }
+  .heist-hint { position: fixed; bottom: 8px; left: 50%; transform: translateX(-50%); z-index: 8; color: rgba(255,255,255,0.5); font-size: 0.72rem; }
+  .heist-msg { position: fixed; inset: 0; z-index: 9; display: none; align-items: center; justify-content: center; flex-direction: column; text-align: center; color: #fff; text-shadow: 0 2px 12px #000; pointer-events: none; }
+  .heist-msg.on { display: flex; }
+  .heist-msg .big { font-size: clamp(2.2rem,11vw,4.6rem); font-weight: 900; }
+  .heist-msg .small { font-size: 1.05rem; margin-top: 8px; }
+  .heist-controls { position: fixed; bottom: 26px; left: 0; right: 0; z-index: 8; display: flex; justify-content: space-between; align-items: center; padding: 0 22px; pointer-events: none; gap: 10px; }
+  .heist-controls button { pointer-events: auto; font-family: inherit; font-weight: 700; font-size: 1rem; background: rgba(0,0,0,0.55); color: #fff; border: 1px solid #666; border-radius: 14px; padding: 16px 20px; }
+  .heist-controls button:active { background: #00e5ff; color: #04121a; }
+  .heist-controls #hJump { flex: 1; margin: 0 8px; }
+  @media (hover: hover) and (pointer: fine) { .heist-controls { display: none; } }
+
+  /* ======================= RHYTHM GAME ======================= */
+  #rhythm { position: fixed; inset: 0; z-index: 1000; display: none; overflow: hidden;
+            background: #0a0410; font-family: "Courier New", monospace; color: #fff; }
+  #rhythm.on { display: block; }
+  #rhythm.flash { animation: hitFlash .25s ease; }
+  /* synthwave backdrop: glowing haze + a scrolling neon grid floor + scanlines */
+  .rh-bg { position: absolute; inset: 0; z-index: 0; overflow: hidden;
+    background: radial-gradient(circle at 50% 118%, rgba(255,46,196,0.32), transparent 58%),
+                radial-gradient(circle at 50% -16%, rgba(0,229,255,0.26), transparent 52%),
+                linear-gradient(#150829, #08040f 62%);
+    animation: rhPulse 0.5s ease-in-out infinite alternate; }
+  @keyframes rhPulse { from { filter: brightness(0.9); } to { filter: brightness(1.16); } }
+  .rh-bg::before { content: ""; position: absolute; left: -30%; right: -30%; bottom: 0; height: 50%; pointer-events: none;
+    background-image: repeating-linear-gradient(90deg, rgba(0,229,255,0.4) 0 2px, transparent 2px 66px),
+                      repeating-linear-gradient(0deg, rgba(255,46,196,0.4) 0 2px, transparent 2px 60px);
+    transform: perspective(320px) rotateX(64deg); transform-origin: bottom center; opacity: 0.55;
+    -webkit-mask: linear-gradient(#000, transparent 90%); mask: linear-gradient(#000, transparent 90%);
+    animation: rhGrid 1s linear infinite; }
+  @keyframes rhGrid { from { background-position: 0 0, 0 0; } to { background-position: 0 66px, 0 60px; } }
+  .rh-bg::after { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0.5;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 3px); mix-blend-mode: overlay; }
+
+  .rh-top { position: fixed; top: 10px; left: 0; right: 0; z-index: 6; display: flex; justify-content: center; gap: 16px; }
+  .rh-stat { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #c9b6dd;
+    background: rgba(22,8,38,0.6); border: 1px solid rgba(255,46,196,0.4); border-radius: 999px; padding: 5px 15px;
+    box-shadow: 0 0 14px rgba(255,46,196,0.22); }
+  .rh-stat b { color: #fff; font-size: 1.1rem; text-shadow: 0 0 9px rgba(0,229,255,0.85); }
+  .rh-health { position: fixed; top: 46px; left: 50%; transform: translateX(-50%); z-index: 6;
+    width: min(60vw, 340px); height: 14px; background: rgba(255,255,255,0.1); border-radius: 999px; overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.28); box-shadow: inset 0 0 8px rgba(0,0,0,0.55), 0 0 14px rgba(255,46,110,0.3); }
+  .rh-health-fill { height: 100%; width: 50%; background: linear-gradient(90deg, #ff2e6e, #ffd23e, #38e08a); transition: width .12s;
+    box-shadow: 0 0 14px rgba(255,210,62,0.7); }
+  .rh-field { position: absolute; left: 50%; top: 0; bottom: 0; transform: translateX(-50%); z-index: 2; }
+  /* glowing hit-line across the field, aligned to the receptor row (~80%) */
+  .rh-field::before { content: ""; position: absolute; left: -10px; right: -10px; top: 80%; height: 4px; transform: translateY(-50%); z-index: 1;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.95), transparent);
+    box-shadow: 0 0 20px 4px rgba(255,255,255,0.55); opacity: 0.7; pointer-events: none; }
+  .rh-lane { position: absolute; top: 0; bottom: 0; box-sizing: border-box;
+    border-left: 1px solid rgba(255,255,255,0.1); border-right: 1px solid rgba(255,255,255,0.1);
+    background: linear-gradient(to bottom, transparent 38%, rgba(255,255,255,0.04) 80%, rgba(255,255,255,0.11) 100%); }
+  .rh-receptor {
+    position: absolute; left: 50%; transform: translateX(-50%); border-radius: 14px;
+    display: flex; align-items: center; justify-content: center; font-size: 1.8rem; font-weight: 900;
+    border: 3px solid; background: rgba(255,255,255,0.06);
+    box-shadow: 0 0 16px currentColor, inset 0 0 14px rgba(255,255,255,0.08);
+    transition: transform .05s, box-shadow .08s; animation: rhRecPulse 0.5s ease-in-out infinite alternate; }
+  @keyframes rhRecPulse { from { filter: brightness(0.82); } to { filter: brightness(1.28); } }
+  .rh-receptor.hit { transform: translateX(-50%) scale(1.2); filter: brightness(1.7);
+    box-shadow: 0 0 34px 7px currentColor, inset 0 0 22px rgba(255,255,255,0.35); }
+  /* glossy, brighter-glowing note blocks (JS still sets size/pos/colour) */
+  .rh-note { position: absolute; border-radius: 11px; will-change: transform;
+    display: flex; align-items: center; justify-content: center; font-size: 1.5rem; font-weight: 900; color: #fff;
+    border: 1px solid rgba(255,255,255,0.5);
+    box-shadow: 0 0 14px currentColor, 0 0 30px currentColor,
+                inset 0 3px 6px rgba(255,255,255,0.5), inset 0 -5px 9px rgba(0,0,0,0.38);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.7); transition: opacity .2s, filter .2s; }
+  .rh-note.missed { opacity: 0.38; filter: grayscale(0.7) brightness(0.8); box-shadow: none; }
+  .rh-combo { position: fixed; top: 21%; left: 0; right: 0; z-index: 5; text-align: center; font-size: 2.3rem; font-weight: 900;
+    color: #ffd23e; text-shadow: 0 0 16px rgba(255,210,62,0.85), 0 0 34px rgba(255,140,0,0.5); pointer-events: none; opacity: 0; font-style: italic; }
+  .rh-combo.show { animation: rhComboPop .3s ease; }
+  @keyframes rhComboPop { 0% { opacity: 0; transform: scale(0.55); } 40% { opacity: 1; transform: scale(1.15); } 100% { opacity: 1; transform: scale(1); } }
+  .rh-judge { position: fixed; top: 33%; left: 0; right: 0; z-index: 5; text-align: center; font-size: 2rem; font-weight: 900; letter-spacing: 0.06em;
+    pointer-events: none; opacity: 0; text-shadow: 0 0 18px currentColor, 0 2px 6px rgba(0,0,0,0.5); }
+  .rh-judge.show { animation: rhJudge .35s ease; }
+  @keyframes rhJudge { 0% { opacity: 0; transform: translateY(10px) scale(0.9); } 30% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+  .rh-hint { position: fixed; bottom: 8px; left: 50%; transform: translateX(-50%); z-index: 6; color: rgba(255,255,255,0.55); font-size: 0.72rem; }
+  .rh-msg { position: fixed; inset: 0; z-index: 9; display: none; align-items: center; justify-content: center; flex-direction: column; text-align: center; pointer-events: none; }
+  .rh-msg.on { display: flex; }
+  .rh-msg .big { font-size: clamp(2.2rem, 11vw, 4.8rem); font-weight: 900; text-shadow: 0 0 24px #ff2ec4; }
+  .rh-msg .small { font-size: 1.05rem; margin-top: 8px; color: #cfe; }
+  .rh-touch { position: fixed; bottom: 22px; left: 0; right: 0; z-index: 7; display: none; justify-content: center; gap: 10px; }
+  .rh-touch button { width: 64px; height: 64px; font-size: 1.5rem; font-weight: 900; background: rgba(20,10,30,0.8); color: #fff; border: 1px solid #555; border-radius: 12px; }
+  @media (hover: none) and (pointer: coarse) { .rh-touch { display: flex; } }
+
+  /* ---- desktop-only gate (shown on touch/mobile devices) ---- */
+  #mobileBlock {
+    position: fixed; inset: 0; z-index: 99999; display: none;
+    flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 30px; gap: 12px; overflow: hidden;
+    background: #04040a; color: #e6f2ff; font-family: ui-monospace, "Courier New", monospace;
+  }
+  html.is-mobile #mobileBlock { display: flex; }
+  html.is-mobile, html.is-mobile body { overflow: hidden; height: 100%; }
+  #mobileBlock::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,0.045) 0 1px, transparent 1px 3px);
+    animation: mbFlick 4s infinite steps(30);
+  }
+  @keyframes mbFlick { 0%,96%,100%{ opacity:.5; } 97%{ opacity:.12; } 98%{ opacity:.75; } }
+  .mb-glitch {
+    position: relative; font-size: clamp(2rem, 13vw, 3.6rem); font-weight: 800;
+    letter-spacing: 0.12em; color: #fff; text-transform: uppercase;
+  }
+  .mb-glitch::before, .mb-glitch::after { content: attr(data-text); position: absolute; left: 0; top: 0; width: 100%; }
+  .mb-glitch::before { color: #ff2e6e; clip-path: inset(0 0 55% 0); animation: mbGl1 2.2s infinite steps(12); }
+  .mb-glitch::after  { color: #00e5ff; clip-path: inset(55% 0 0 0); animation: mbGl2 1.8s infinite steps(14); }
+  @keyframes mbGl1 { 0%,100%{transform:translate(0,0);} 20%{transform:translate(-3px,1px);} 40%{transform:translate(3px,-1px);} 60%{transform:translate(-2px,0);} }
+  @keyframes mbGl2 { 0%,100%{transform:translate(0,0);} 25%{transform:translate(3px,-1px);} 50%{transform:translate(-3px,1px);} 75%{transform:translate(2px,0);} }
+  .mb-text { font-size: clamp(0.95rem, 4.5vw, 1.2rem); color: #b9c9dd; margin: 0; }
+  .mb-text.big { color: #7dffa8; font-weight: 800; font-size: clamp(1.3rem, 6.5vw, 1.7rem); text-shadow: 0 0 14px rgba(56,224,138,0.5); }
+  .mb-it { font-size: 0.78rem; color: #5c6784; font-style: italic; margin: 4px 0 0; }
+  .mb-dots { margin-top: 20px; color: #4d7d7d; font-size: 0.78rem; letter-spacing: 0.05em; }
+  .mb-cursor { animation: mbBlink 1.05s steps(1) infinite; }
+  @keyframes mbBlink { 0%,50%{opacity:1;} 51%,100%{opacity:0;} }
+</style>
+</head>
+<body>
+
+<!-- Desktop-only gate: covers everything on touch/mobile devices -->
+<div id="mobileBlock">
+  <div class="mb-glitch" data-text="SIGNAL LOST">SIGNAL LOST</div>
+  <p class="mb-text">This gate refuses to open here.</p>
+  <p class="mb-text big">Open it on a computer.</p>
+  <p class="mb-it">Questo cancello non si apre qui. Aprilo su un computer.</p>
+  <div class="mb-dots">&gt; awaiting a real machine<span class="mb-cursor">_</span></div>
+</div>
+
+<!-- ======================= MAP ======================= -->
+<div class="map" id="map">
+  <div class="clouds" id="clouds"></div>
+  <img class="football" id="ball" src="assets/football.png" alt="football" />
+  <img class="matrix" id="matrix" src="assets/matrix.png" alt="matrix" />
+  <img class="ridebike" id="ridebike" src="assets/bike.png" alt="bike" />
+  <img class="lazer" id="lazer" src="assets/lazer.png" alt="lazer" />
+  <img class="rhythmobj" id="rhythmobj" src="assets/dj.png" alt="dj" />
+  <img class="plane" id="plane" src="assets/plane.png" alt="plane" />
+  <img id="player" src="assets/sprites/front.png" alt="Francesco" />
+</div>
+
+<div class="ball-label" id="ballLabel">
+  <span class="name">MAKE ITALY QUALIFY FOR THE WORLD CUP</span>
+  <span class="sub">Fai qualificare l'Italia ai Mondiali</span>
+  <span class="ready">▶ PRESS E TO ENTER</span>
+</div>
+
+<div class="plane-label" id="planeLabel"></div>
+
+<div class="gas-ui" title="Gas — fills as you beat games">
+  <div class="gas-can">
+    <img class="gas-dark" src="assets/gas.png" alt="gas" />       <!-- empty (dark) can -->
+    <div class="gas-liquid">                                       <!-- fuel, clipped to the can shape -->
+      <div class="gas-fill" id="gasFill"><div class="gas-wave"></div></div>
+    </div>
+  </div>
+  <div class="gas-list" id="gasList"></div>
+</div>
+
+<!-- music: porcodio on the map; each minigame swaps to its own track (runner keeps porcodio) -->
+<audio id="bgm" loop preload="auto"><source src="assets/porcodio.mp3" type="audio/mpeg" /></audio>
+<audio id="sndItalian" loop preload="auto"><source src="assets/italian-music.mp3" type="audio/mpeg" /></audio>
+<audio id="sndMatrix" loop preload="auto"><source src="assets/matrix-music.mp3" type="audio/mpeg" /></audio>
+<audio id="sndHava" loop preload="auto"><source src="assets/hava.mp3" type="audio/mpeg" /></audio>
+<audio id="sndMotorbike" loop preload="auto"><source src="assets/motorbike-music.mp3" type="audio/mpeg" /></audio>
+<audio id="sndAirplane" preload="auto"><source src="assets/airplane.mp3" type="audio/mpeg" /></audio>
+<button id="muteBtn" title="Mute / Unmute" aria-label="Mute">🔊</button>
+
+<div class="dev-note" id="devNote"></div>
+
+<div class="dpad" id="dpad">
+  <button class="up"    data-dir="up">▲</button>
+  <button class="left"  data-dir="left">◀</button>
+  <button class="right" data-dir="right">▶</button>
+  <button class="down"  data-dir="down">▼</button>
+</div>
+
+<!-- ======================= TRANSITION LAYERS ======================= -->
+<div id="curtain"></div>
+<div id="blackout"></div>
+<div id="countdown"><span class="n" id="countN">3</span></div>
+
+<!-- unlock announcement + directional arrow -->
+<div id="unlockBanner">
+  <div class="unlock-card">
+    <div class="unlock-eyebrow">✦ NEW GAME UNLOCKED ✦</div>
+    <div class="unlock-name" id="unlockName">GAME</div>
+    <div class="unlock-dismiss" id="unlockDismiss"></div>
+  </div>
+</div>
+<div id="unlockArrow"><span>➜</span></div>
+
+<!-- endgame: all fuel collected -> takeoff cutscene -->
+<div id="endgame">
+  <video id="endVideo" playsinline></video>
+  <div id="endThanks"><span>Grazie per aver giocato</span></div>
+  <div id="endIris"></div>
+  <button id="endReplay">↻ Play again <span>· Rigioca</span></button>
+</div>
+
+<!-- ======================= LEVEL ======================= -->
+<div id="level">
+  <div class="pitch-overlay"></div>
+  <div class="level-hud">
+    <div class="hud-lives" id="hudLives"></div>
+    <div class="hud-center">
+      <div class="hud-wave" id="hudWave"></div>
+      <div class="hud-progress"><div class="hud-progress-fill" id="hudProg"></div><span class="ball-marker" id="hudBall">⚽</span></div>
+    </div>
+    <div class="hud-right"></div>
+  </div>
+  <div class="level-hint">ESC to leave</div>
+  <div id="goal">
+    <div class="goal-label">GOAL</div>
+    <div class="goal-frame"></div>
+    <div class="goal-net"></div>
+    <div class="goal-keeper">🧤</div>
+  </div>
+</div>
+<img id="ballCursor" src="assets/football.png" alt="" />
+<div id="levelMsg"><div class="big" id="msgBig">GOAL!</div><div class="small" id="msgSmall"></div></div>
+
+<!-- ======================= ATLAS GAME (Revolut coding quiz + roulette) ======================= -->
+<div id="atlas">
+  <canvas id="matrixRain"></canvas>
+  <div class="atlas-hint">ESC to leave</div>
+
+  <!-- intro -->
+  <div class="atlas-panel" id="atlasIntro">
+    <div class="atlas-title glitch" data-text="ATLAS&nbsp;AI">ATLAS&nbsp;AI</div>
+    <p class="atlas-text">You are working for <b>Revolut</b> and have to develop <b>Atlas AI</b>!</p>
+    <p class="atlas-text dim">Pass all 15 code checks (random each run) to ship it.</p>
+    <div class="atlas-press">▶ PRESS E TO BEGIN</div>
+  </div>
+
+  <!-- quiz -->
+  <div class="atlas-panel" id="atlasQuiz" style="display:none;">
+    <div class="atlas-topbar">
+      <div class="atlas-progress" id="atlasProgress">01 / 15</div>
+      <div class="atlas-lang" id="atlasLang">// python</div>
+    </div>
+    <div class="atlas-q" id="atlasQ"></div>
+    <div class="atlas-answers" id="atlasAnswers"></div>
+    <button class="atlas-btn" id="atlasSubmit" style="display:none;">RUN ▶</button>
+    <div class="atlas-hintrow">
+      <button class="atlas-hintbtn" id="atlasHintBtn" type="button">💡 hint</button>
+      <div class="atlas-hint" id="atlasHint"></div>
+    </div>
+    <div class="atlas-feedback" id="atlasFeedback"></div>
+  </div>
+
+  <!-- roulette -->
+  <div class="atlas-panel roulette" id="atlasRoulette" style="display:none;">
+    <div class="roulette-title">fimply</div>
+    <div class="wheel-wrap">
+      <div class="wheel-pointer"></div>
+      <div class="wheel" id="wheel"></div>
+    </div>
+    <button class="atlas-btn pink" id="spinBtn">SPIN</button>
+    <div class="roulette-msg" id="rouletteMsg"></div>
+  </div>
+</div>
+
+<!-- ======================= RUNNER GAME (motorbike dino-runner) ======================= -->
+<div id="runner">
+  <div class="run-sky" id="runSky"></div>
+  <div class="run-sun"></div>
+  <div class="run-road" id="runRoad"><div class="run-dashes" id="runDashes"></div></div>
+  <div class="run-timer" id="runTimer">0:45</div>
+  <div class="run-progress"><div class="run-progress-fill" id="runProg"></div><span class="flag">🏁</span></div>
+  <div class="run-hint">ESC to leave · ▲ jump · ▼ duck</div>
+  <img id="rider" src="assets/bike.png" alt="bike" />
+  <div class="run-msg" id="runMsg"><div class="big" id="runMsgBig"></div><div class="small" id="runMsgSmall"></div></div>
+  <div class="run-controls">
+    <button id="duckBtn">▼ DUCK</button>
+    <button id="jumpBtn">JUMP ▲</button>
+  </div>
+</div>
+
+<!-- ======================= HEIST GAME (rob laser-eyes Bibi, platformer) ======================= -->
+<div id="heist">
+  <div class="heist-bg" id="heistBg">
+    <div class="vault-grid"></div>
+    <div class="vault-cam">📹</div>
+    <div class="vault-sign">🏦 BANK OF BIBI</div>
+  </div>
+  <div class="heist-world" id="heistWorld"></div>
+  <div class="heist-alarm" id="heistAlarm"></div>
+  <div class="heist-hud" id="heistHud">
+    <div class="hh-hearts" id="hHearts"></div>
+    <div class="hh-obj" id="hObj"></div>
+    <div class="hh-hearts"></div>
+  </div>
+  <div class="heist-hint">← → move · ↑ / space jump · ESC leave</div>
+  <div class="heist-msg" id="heistMsg"><div class="big" id="heistMsgBig"></div><div class="small" id="heistMsgSmall"></div></div>
+  <div class="heist-controls">
+    <button id="hLeft">◀</button>
+    <button id="hJump">JUMP ▲</button>
+    <button id="hRight">▶</button>
+  </div>
+</div>
+
+<!-- ======================= RHYTHM GAME (dubstep note-hit, FNF-style) ======================= -->
+<div id="rhythm">
+  <div class="rh-bg"></div>
+  <div class="rh-top">
+    <div class="rh-stat">SCORE <b id="rhScore">0</b></div>
+    <div class="rh-stat">ACC <b id="rhAcc">100%</b></div>
+    <div class="rh-stat">HITS <b id="rhHits">0/0</b></div>
+  </div>
+  <div class="rh-health"><div class="rh-health-fill" id="rhHealth"></div></div>
+  <div class="rh-field" id="rhField"></div>
+  <div class="rh-combo" id="rhCombo"></div>
+  <div class="rh-judge" id="rhJudge"></div>
+  <div class="rh-hint">A S W D (or arrows) · hit notes on the line · ESC leave</div>
+  <div class="rh-msg" id="rhMsg"><div class="big" id="rhMsgBig"></div><div class="small" id="rhMsgSmall"></div></div>
+  <div class="rh-touch">
+    <button data-lane="0">←</button><button data-lane="1">↓</button><button data-lane="2">↑</button><button data-lane="3">→</button>
+  </div>
+</div>
+<audio id="rhythmAudio" src="assets/dubstep.mp3" preload="auto"></audio>
+
+<script>window.FG_BEATMAP=[[23,0],[975,2],[1765,0],[2577,0],[4342,2],[5155,0],[5921,1],[6594,1],[7732,0],[9358,2],[10147,1],[11215,1],[12005,3],[12771,3],[13444,3],[14443,1],[15232,2],[15929,3],[16927,3],[18135,3],[18855,3],[19574,3],[20503,2],[21269,2],[21920,1],[22570,2],[23847,3],[25147,2],[25937,3],[26610,3],[27609,1],[28375,2],[29048,3],[29907,2],[30906,3],[31602,1],[32578,0],[33530,0],[34180,3],[35155,0],[35944,1],[36595,0],[37732,0],[38383,0],[39172,0],[39985,1],[40635,0],[41726,3],[42562,3],[43212,2],[43862,0],[44536,1],[45465,0],[46440,1],[47113,2],[48367,2],[49342,0],[50318,0],[50991,1],[52036,2],[52733,1],[53522,3],[54172,1],[54822,2],[55798,1],[56750,2],[57400,3],[58050,0],[58723,2],[59652,1]];</script>
+<script>
+/* ==========================================================================
+   SPRITES + MOVEMENT (overworld)
+   ========================================================================== */
+const SPRITES = {
+  down:  { stand: "assets/sprites/front.png", walk: ["assets/sprites/front_walk.png", "assets/sprites/front_walk.png"], frameFlip: [false, true],  dirFlip: false },
+  up:    { stand: "assets/sprites/back.png",  walk: ["assets/sprites/back_walk.png",  "assets/sprites/back_walk.png"],  frameFlip: [false, true],  dirFlip: false },
+  left:  { stand: "assets/sprites/side.png",  walk: ["assets/sprites/side_left.png",  "assets/sprites/side_right.png"], frameFlip: [false, false], dirFlip: true  },
+  right: { stand: "assets/sprites/side.png",  walk: ["assets/sprites/side_left.png",  "assets/sprites/side_right.png"], frameFlip: [false, false], dirFlip: false },
+};
+Object.values(SPRITES).forEach(s => [s.stand, ...s.walk].forEach(src => { const i = new Image(); i.src = src; }));
+["assets/plane.png","assets/football.png","assets/gas.png","assets/cloud.png","assets/curtains.jpg","assets/field.jpg","assets/matrix.png","assets/flag.png","assets/bibi.png","assets/bibifly.png","assets/coin.png","assets/cash.png","assets/lazer.png","assets/f1.png","assets/dj.png","assets/background.png","assets/bike.png","assets/wheelie.png"].forEach(s => { const i = new Image(); i.src = s; });
+
+const map = document.getElementById("map");
+const player = document.getElementById("player");
+const cloudsEl = document.getElementById("clouds");
+const plane = document.getElementById("plane");
+const ball = document.getElementById("ball");
+const matrix = document.getElementById("matrix");
+const ridebike = document.getElementById("ridebike");
+const lazer = document.getElementById("lazer");
+const rhythmobj = document.getElementById("rhythmobj");
+const ballLabel = document.getElementById("ballLabel");
+
+const SIZE = 116, SPEED = 3.2, STEP_MS = 140;
+let x = 120, y = 120, dir = "down", moving = false, frame = 0, lastStep = 0;
+let mapActive = true;                       // paused while a level is running
+const held = { up:false, down:false, left:false, right:false };
+
+/* ---- clouds ---- */
+function scatterClouds() {
+  const W = map.clientWidth, H = map.clientHeight;
+  cloudsEl.innerHTML = "";
+  const count = Math.max(22, Math.min(44, Math.round((W * H) / 28000)));
+  for (let i = 0; i < count; i++) {
+    const img = document.createElement("img");
+    img.className = "cloud"; img.src = "assets/cloud.png";
+    const size = 80 + Math.random() * 110;
+    img.style.width = size + "px"; img.style.height = size + "px";
+    img.style.left = Math.random() * (W - size * 0.6) + "px";
+    img.style.top  = Math.random() * (H - size * 0.55) + "px";
+    img.style.opacity = (0.78 + Math.random() * 0.22).toFixed(2);
+    if (Math.random() < 0.5) img.style.transform = "scaleX(-1)";
+    cloudsEl.appendChild(img);
+  }
+}
+scatterClouds();
+let cloudT; window.addEventListener("resize", () => { clearTimeout(cloudT); cloudT = setTimeout(() => { scatterClouds(); updateGasBadges(); }, 200); });
+
+/* ---- input ---- */
+const KEYMAP = { ArrowUp:"up", KeyW:"up", ArrowDown:"down", KeyS:"down", ArrowLeft:"left", KeyA:"left", ArrowRight:"right", KeyD:"right" };
+window.addEventListener("keydown", e => {
+  const atlasOn = document.getElementById("atlas").classList.contains("on");
+  const runnerOn = document.getElementById("runner").classList.contains("on");
+  const heistOn = document.getElementById("heist").classList.contains("on");
+  const rhythmOn = document.getElementById("rhythm").classList.contains("on");
+  if (!atlasOn && !runnerOn && !heistOn && !rhythmOn) {   // don't hijack WASD in the minigames
+    const d = KEYMAP[e.code];
+    if (d) { held[d] = true; e.preventDefault(); }
+  }
+  const RHK = { KeyA: 0, ArrowLeft: 0, KeyS: 1, ArrowDown: 1, KeyW: 2, ArrowUp: 2, KeyD: 3, ArrowRight: 3 };
+  if (rhythmOn && RHK[e.code] !== undefined) { e.preventDefault(); if (!e.repeat) Rhythm.press(RHK[e.code]); }
+  if (runnerOn) {
+    if (["Space", "ArrowUp", "KeyW"].includes(e.code)) { e.preventDefault(); Runner.jump(); }
+    if (["ArrowDown", "KeyS"].includes(e.code)) { e.preventDefault(); Runner.duck(true); }
+  }
+  if (heistOn) {
+    if (["ArrowLeft", "KeyA"].includes(e.code)) { e.preventDefault(); Heist.setKey("left", true); }
+    if (["ArrowRight", "KeyD"].includes(e.code)) { e.preventDefault(); Heist.setKey("right", true); }
+    if (["Space", "ArrowUp", "KeyW"].includes(e.code)) { e.preventDefault(); Heist.jump(); }
+  }
+  if (e.code === "KeyE") {
+    if (atlasOn) Atlas.pressE();
+    else if (!runnerOn && !heistOn && !rhythmOn) {
+      if (mapActive && planeReady()) startEndgame();   // fully fuelled -> take off
+      else tryEnter();                                 // else enter whatever we're standing near
+    }
+  }
+  if (e.code === "Escape") {
+    if (document.getElementById("level").classList.contains("on")) Level.leave();
+    else if (atlasOn) Atlas.leave();
+    else if (runnerOn) Runner.leave();
+    else if (heistOn) Heist.leave();
+    else if (rhythmOn) Rhythm.leave();
+  }
+});
+window.addEventListener("keyup", e => {
+  const d = KEYMAP[e.code]; if (d) { held[d] = false; }
+  if (document.getElementById("runner").classList.contains("on") && ["ArrowDown", "KeyS"].includes(e.code)) Runner.duck(false);
+  if (document.getElementById("heist").classList.contains("on")) {
+    if (["ArrowLeft", "KeyA"].includes(e.code)) Heist.setKey("left", false);
+    if (["ArrowRight", "KeyD"].includes(e.code)) Heist.setKey("right", false);
+  }
+  const RHK2 = { KeyA: 0, ArrowLeft: 0, KeyS: 1, ArrowDown: 1, KeyW: 2, ArrowUp: 2, KeyD: 3, ArrowRight: 3 };
+  if (document.getElementById("rhythm").classList.contains("on") && RHK2[e.code] !== undefined) Rhythm.release(RHK2[e.code]);
+});
+document.querySelectorAll("#dpad button").forEach(btn => {
+  const d = btn.dataset.dir;
+  const press = e => { e.preventDefault(); held[d] = true; };
+  const release = e => { e.preventDefault(); held[d] = false; };
+  btn.addEventListener("pointerdown", press);
+  btn.addEventListener("pointerup", release);
+  btn.addEventListener("pointerleave", release);
+  btn.addEventListener("pointercancel", release);
+});
+
+/* ---- plane collision helpers ---- */
+function rectsOverlap(ax,ay,ax2,ay2, bx,by,bx2,by2){ return ax < bx2 && ax2 > bx && ay < by2 && ay2 > by; }
+function planeBox() {
+  const pr = plane.getBoundingClientRect(), mr = map.getBoundingClientRect();
+  // inset to roughly match the plane body (image has transparent margins)
+  const insX = pr.width * 0.06, insY = pr.height * 0.22;
+  return { l: pr.left - mr.left + insX, t: pr.top - mr.top + insY, r: pr.right - mr.left - insX, b: pr.bottom - mr.top - insY };
+}
+const HB = 26; // player hitbox inset (sprite has whitespace)
+function hitsPlane(px, py) {
+  const pb = planeBox();
+  return rectsOverlap(px+HB, py+HB, px+SIZE-HB, py+SIZE-HB, pb.l, pb.t, pb.r, pb.b);
+}
+
+/* ---- interactables (each object you can walk up to and enter with E) ---- */
+const INTERACTS = [
+  { el: ball,   level: "italy-wc",       short: "ITALY WORLD CUP",   music: "italian",  name: "MAKE ITALY QUALIFY FOR THE WORLD CUP", it: "Fai qualificare l'Italia ai Mondiali", enter: () => runTransition(() => Level.start("italy-wc")) },
+  { el: matrix, level: "atlas-ai",       short: "ATLAS AI",          music: "matrix",   name: "DEVELOP ATLAS AI @ REVOLUT",           it: "Sviluppa Atlas AI per Revolut",        enter: () => Atlas.start("atlas-ai") },
+  { el: ridebike, level: "gp-getaway",   short: "GRAND PRIX GETAWAY", music: "motorbike", name: "GRAND PRIX GETAWAY — SURVIVE 60s",   it: "Fuga a tutto gas — sopravvivi 60s",    enter: () => Runner.start("gp-getaway") },
+  { el: lazer,    level: "heist-bibi",   short: "THE HEIST",         music: "hava",   name: "THE HEIST — ROB SLEEPING BIBI",       it: "Il colpo — deruba Bibi che dorme",     enter: () => Heist.start("heist-bibi") },
+  { el: rhythmobj, level: "rhythm-dubstep", short: "DUBSTEP RHYTHM", music: "silent", name: "DUBSTEP RHYTHM — HIT THE NOTES",      it: "Ritmo dubstep — colpisci le note",     enter: () => Rhythm.start("rhythm-dubstep") },
+];
+// Fixed unlock chain: football is open from the start; each game reveals the
+// next once beaten. (Admin: typing 983 on the map unlocks everything.)
+const UNLOCK_ORDER = INTERACTS.map(it => it.level);
+let cheatAll = localStorage.getItem("fg_cheat") === "1";
+function isUnlocked(i) { return cheatAll || i === 0 || beaten.has(UNLOCK_ORDER[i - 1]); }
+function itUnlocked(it) { return isUnlocked(INTERACTS.indexOf(it)); }
+// Show only the games that are currently unlocked.
+function refreshUnlocks() {
+  INTERACTS.forEach((it, i) => { it.el.style.display = isUnlocked(i) ? "" : "none"; });
+}
+let currentInteract = null;
+
+function centerOf(el) {
+  const r = el.getBoundingClientRect(), m = map.getBoundingClientRect();
+  return { x: r.left - m.left + r.width/2, y: r.top - m.top + r.height/2, top: r.top - m.top };
+}
+// Nearest interactable within range shows the label and is ready for E (no click).
+function updateLabels() {
+  const px = x + SIZE/2, py = y + SIZE/2;
+  let best = null, bestD = 150;
+  for (const it of INTERACTS) {
+    if (!itUnlocked(it)) continue;                 // locked games aren't there yet
+    const c = centerOf(it.el);
+    const d = Math.hypot(px - c.x, py - c.y);
+    if (d < bestD) { bestD = d; best = { it, c }; }
+  }
+  INTERACTS.forEach(it => it.el.classList.remove("near"));
+  if (best) {
+    currentInteract = best.it;
+    best.it.el.classList.add("near");
+    ballLabel.querySelector(".name").textContent = best.it.name;
+    ballLabel.querySelector(".sub").textContent = best.it.it;
+    ballLabel.classList.add("show");
+    ballLabel.style.left = best.c.x + "px";
+    ballLabel.style.top = (best.c.top - ballLabel.offsetHeight - 10) + "px";
+  } else {
+    currentInteract = null;
+    ballLabel.classList.remove("show");
+  }
+}
+
+// Walk up to the plane -> shows how much fuel (gas) you've collected.
+const planeLabel = document.getElementById("planeLabel");
+function updatePlaneLabel() {
+  const c = centerOf(plane), px = x + SIZE/2, py = y + SIZE/2;
+  if (Math.hypot(px - c.x, py - c.y) < 150) {
+    const g = gas();
+    planeLabel.innerHTML = (g >= GAS_MAX ? "⛽ FUELLED — PRESS E TO TAKE OFF!" : "⛽ FUEL: " + g + " / " + GAS_MAX)
+      + '<span class="sub2">' + (g >= GAS_MAX ? "Rifornito — premi E per decollare!" : "Carburante: " + g + " / " + GAS_MAX + "") + '</span>';
+    planeLabel.classList.add("show");
+    const pr = plane.getBoundingClientRect(), mr = map.getBoundingClientRect();
+    planeLabel.style.left = c.x + "px";
+    // sit on the plane (upper third of its body)
+    planeLabel.style.top = (pr.top - mr.top + pr.height * 0.30) + "px";
+  } else {
+    planeLabel.classList.remove("show");
+  }
+}
+
+/* ---- game loop (overworld) ---- */
+function tick(now) {
+  if (mapActive) {
+    let dx = 0, dy = 0;
+    if (held.up) dy -= 1; if (held.down) dy += 1;
+    if (held.left) dx -= 1; if (held.right) dx += 1;
+    moving = (dx !== 0 || dy !== 0);
+    if (moving) {
+      if (dx !== 0 && dy === 0) dir = dx < 0 ? "left" : "right";
+      else if (dy !== 0 && dx === 0) dir = dy < 0 ? "up" : "down";
+      else if (dx !== 0 && dy !== 0) dir = dx < 0 ? "left" : "right";
+      const len = Math.hypot(dx, dy) || 1;
+      let nx = x + (dx/len)*SPEED, ny = y + (dy/len)*SPEED;
+      const b = 3;
+      nx = Math.max(b, Math.min(nx, map.clientWidth  - SIZE - b));
+      ny = Math.max(b, Math.min(ny, map.clientHeight - SIZE - b));
+      // plane collision (axis-separated so you can slide along it)
+      let tx = x, ty = y;
+      if (!hitsPlane(nx, y)) tx = nx;
+      if (!hitsPlane(tx, ny)) ty = ny;
+      x = tx; y = ty;
+      if (now - lastStep > STEP_MS) { frame = (frame + 1) % 2; lastStep = now; }
+    }
+    renderPlayer();
+    updateLabels();
+    updatePlaneLabel();
+    updateArrow();
+  }
+  requestAnimationFrame(tick);
+}
+function renderPlayer() {
+  const set = SPRITES[dir];
+  let src, flip;
+  if (moving) { src = set.walk[frame]; flip = set.dirFlip !== set.frameFlip[frame]; }
+  else { src = set.stand; flip = set.dirFlip; }
+  if (player.getAttribute("src") !== src) player.setAttribute("src", src);
+  player.style.transform = `translate(${x}px, ${y}px)${flip ? " scaleX(-1)" : ""}`;
+}
+x = Math.round(window.innerWidth/2 - SIZE/2);
+y = Math.round(window.innerHeight/2 - SIZE/2);
+requestAnimationFrame(tick);
+
+if (["localhost","127.0.0.1"].includes(location.hostname))
+  document.getElementById("devNote").innerHTML = 'DEV: WASD / arrows · walk to the ball · <a href="index.html?full">full intro →</a>';
+
+/* ==========================================================================
+   GAS STATE — X / 6, one gas per distinct level beaten (persisted).
+   ========================================================================== */
+const GAS_MAX = 5;
+const beaten = new Set(JSON.parse(localStorage.getItem("fg_beaten") || "[]"));
+function gas() { return Math.min(beaten.size, GAS_MAX); }
+function renderGas() {
+  const pct = (gas() / GAS_MAX) * 100;                 // how full, 0–100%
+  document.getElementById("gasFill").style.height = pct + "%";
+  updateGasList(); updateGasBadges();
+}
+// hover list on the gas can — beaten games highlighted, the rest dimmed
+function updateGasList() {
+  const list = document.getElementById("gasList"); if (!list) return;
+  list.innerHTML = "<div class='gas-list-title'>⛽ FUEL STOPS</div>" + INTERACTS.map(it => {
+    const done = beaten.has(it.level);
+    return "<div class='gas-row" + (done ? " done" : "") + "'><span>" + (done ? "⛽ " : "🔒 ") + it.short + "</span>" + (done ? "<b class='chk'>✓</b>" : "") + "</div>";
+  }).join("");
+}
+// little gas badge in the bottom-left of each beaten game's sprite
+function updateGasBadges() {
+  if (!INTERACTS[0]) return;
+  const m = map.getBoundingClientRect();
+  INTERACTS.forEach(it => {
+    if (!it.badge) { const b = document.createElement("div"); b.className = "gas-badge"; b.textContent = "✓"; map.appendChild(b); it.badge = b; }
+    const show = beaten.has(it.level) && it.el.style.display !== "none";
+    it.badge.style.display = show ? "flex" : "none";
+    if (show) { const r = it.el.getBoundingClientRect(); it.badge.style.left = (r.left - m.left - 2) + "px"; it.badge.style.top = (r.bottom - m.top - 26) + "px"; }
+  });
+}
+function awardGas(levelId) {
+  if (!beaten.has(levelId)) { beaten.add(levelId); localStorage.setItem("fg_beaten", JSON.stringify([...beaten])); }
+  renderGas();
+}
+renderGas();
+
+/* ==========================================================================
+   PROGRESSIVE UNLOCKS — announce a newly-revealed game (banner + arrow) the
+   next time the player is back on the map.
+   ========================================================================== */
+// Which unlocked games the player has already been told about. First run seeds
+// with whatever is already unlocked so we don't retroactively spam banners.
+const seenUnlocks = (() => {
+  const raw = localStorage.getItem("fg_seen");
+  if (raw) return new Set(JSON.parse(raw));
+  const init = INTERACTS.filter((it, i) => isUnlocked(i)).map(it => it.level);
+  localStorage.setItem("fg_seen", JSON.stringify(init));
+  return new Set(init);
+})();
+function markSeen(level) { seenUnlocks.add(level); localStorage.setItem("fg_seen", JSON.stringify([...seenUnlocks])); }
+
+const unlockBanner = document.getElementById("unlockBanner");
+const unlockNameEl = document.getElementById("unlockName");
+const unlockDismissEl = document.getElementById("unlockDismiss");
+const unlockArrow = document.getElementById("unlockArrow");
+let arrowTarget = null, arrowUntil = 0;
+
+// Called whenever we land back on the map. Shows a banner for the first
+// not-yet-seen unlocked game, then points an arrow at it.
+function checkNewUnlocks() {
+  refreshUnlocks();
+  const idx = INTERACTS.findIndex((it, i) => i >= 1 && isUnlocked(i) && !seenUnlocks.has(it.level));
+  if (idx < 0) return;
+  const it = INTERACTS[idx];
+  markSeen(it.level);
+  showUnlockBanner(it);
+}
+
+function showUnlockBanner(it) {
+  unlockNameEl.textContent = it.short;
+  unlockDismissEl.textContent = "";
+  unlockBanner.classList.add("show");
+  let armed = false;
+  const arm = () => { armed = true; unlockDismissEl.textContent = "click anywhere to continue"; };
+  const armTimer = setTimeout(arm, 3000);                 // dismiss only works after 3s
+  const dismiss = () => {
+    if (!armed) return;
+    clearTimeout(armTimer);
+    window.removeEventListener("pointerdown", dismiss, true);
+    window.removeEventListener("keydown", dismiss, true);
+    unlockBanner.classList.remove("show");
+    pointArrowAt(it);
+  };
+  window.addEventListener("pointerdown", dismiss, true);
+  window.addEventListener("keydown", dismiss, true);
+}
+
+// Arrow near the player that points toward the new game; pulses, fades after 5s.
+function pointArrowAt(it) { arrowTarget = it; arrowUntil = performance.now() + 5000; unlockArrow.classList.add("show"); }
+function updateArrow() {
+  if (!arrowTarget) return;
+  if (performance.now() > arrowUntil || !mapActive) { arrowTarget = null; unlockArrow.classList.remove("show"); return; }
+  const px = x + SIZE / 2, py = y + SIZE / 2;
+  const c = centerOf(arrowTarget.el);
+  const ang = Math.atan2(c.y - py, c.x - px);
+  // sit the arrow just off the player's edge, in the target's direction
+  const rad = SIZE * 0.62;
+  unlockArrow.style.left = (px + Math.cos(ang) * rad) + "px";
+  unlockArrow.style.top  = (py + Math.sin(ang) * rad) + "px";
+  unlockArrow.firstElementChild.style.rotate = (ang * 180 / Math.PI) + "deg";
+}
+
+refreshUnlocks();
+// If they arrive on the map already owing an announcement (e.g. beat a game then
+// reloaded), surface it shortly after load.
+setTimeout(checkNewUnlocks, 600);
+
+// ---- admin cheat: type 983 anywhere on the map to unlock every game ----
+let cheatBuf = "";
+window.addEventListener("keydown", e => {
+  if (e.key >= "0" && e.key <= "9") {
+    cheatBuf = (cheatBuf + e.key).slice(-3);
+    if (cheatBuf === "983" && !cheatAll) {
+      cheatAll = true; localStorage.setItem("fg_cheat", "1");
+      INTERACTS.forEach(it => markSeen(it.level));   // no per-game banners for the admin unlock
+      refreshUnlocks();
+      unlockNameEl.textContent = "ALL GAMES";
+      unlockDismissEl.textContent = "admin unlock";
+      unlockBanner.classList.add("show");
+      setTimeout(() => unlockBanner.classList.remove("show"), 1400);
+    }
+    if (cheatBuf === "765" && mapActive && !endgameRunning) startEndgame();   // admin: jump to the ending
+  }
+});
+
+/* ==========================================================================
+   ENDGAME — with every gas can collected, press E at the plane to take off:
+   airplane sound -> fade to black -> the AI video (slightly slowed) -> fade
+   -> cursive "grazie per aver giocato" -> iris closes in.
+   ========================================================================== */
+const endgameEl = document.getElementById("endgame");
+const endVideo = document.getElementById("endVideo");
+const endThanks = document.getElementById("endThanks");
+const endIris = document.getElementById("endIris");
+const endReplayBtn = document.getElementById("endReplay");
+const airplaneSnd = document.getElementById("sndAirplane");
+let endgameRunning = false;
+
+// Replay: drop everything from the ending and go back to the cloud map. All
+// progress (unlocked games, gas) is untouched in localStorage, so it stays.
+function endReplay() {
+  endReplayBtn.classList.remove("show");
+  endThanks.classList.remove("show");
+  endVideo.classList.remove("show");
+  endIris.classList.remove("close");
+  try { endVideo.pause(); endVideo.removeAttribute("src"); endVideo.load(); } catch (e) {}
+  try { airplaneSnd.pause(); } catch (e) {}
+  endgameEl.classList.remove("show");
+  endgameRunning = false;
+  mapActive = true;
+  try { BGM.play("porcodio"); } catch (e) {}
+}
+endReplayBtn.addEventListener("click", endReplay);
+
+function planeReady() {
+  const c = centerOf(plane), px = x + SIZE / 2, py = y + SIZE / 2;
+  return gas() >= GAS_MAX && Math.hypot(px - c.x, py - c.y) < 150;
+}
+function startEndgame() {
+  if (endgameRunning) return;
+  endgameRunning = true; mapActive = false;
+  try { BGM.play("silent"); } catch (e) {}
+  try { airplaneSnd.currentTime = 0; airplaneSnd.volume = 1; airplaneSnd.play().catch(() => {}); } catch (e) {}
+  // 1) fade the map to black
+  blackout.classList.add("on");
+  setTimeout(() => {
+    // 2) swap in the endgame layer under the black, then reveal the video
+    endgameEl.classList.add("show");
+    endVideo.src = "assets/fatvideo.mp4";
+    endVideo.playbackRate = 0.85;              // slightly slowed down
+    endVideo.play().catch(() => {});
+    blackout.classList.remove("on");
+    setTimeout(() => endVideo.classList.add("show"), 40);
+    const toThanks = () => {
+      endVideo.removeEventListener("ended", toThanks);
+      // 3) fade video to black, then show the cursive thank-you
+      endVideo.classList.remove("show");
+      setTimeout(() => {
+        endThanks.classList.add("show");
+        // 4) iris closes in after the thank-you has been read
+        setTimeout(() => {
+          endIris.classList.add("close");
+          // 5) once the slow iris has fully closed, offer a replay back to the map
+          setTimeout(() => endReplayBtn.classList.add("show"), 5800);
+        }, 2200);
+      }, 1000);
+    };
+    endVideo.addEventListener("ended", toThanks);
+    // safety: if the video is very long, move on after 18s
+    setTimeout(() => { if (endgameRunning && endVideo.classList.contains("show")) toThanks(); }, 18000);
+  }, 850);
+}
+
+/* ==========================================================================
+   BACKGROUND MUSIC — plays on the map, pauses inside the minigames.
+   Starts on the first interaction (autoplay needs a gesture). Mute persists
+   (shared "fg_muted" key with the puzzle site).
+   ========================================================================== */
+const BGM = (() => {
+  const VOL = 0.45, FADE_MS = 750;
+  const tracks = {
+    porcodio: { el: document.getElementById("bgm") },                         // map + runner
+    italian:  { el: document.getElementById("sndItalian"), startAt: 90 },      // football: from 1:30
+    matrix:   { el: document.getElementById("sndMatrix") },                    // atlas/matrix game
+    hava:     { el: document.getElementById("sndHava") },                      // heist (bibi) game
+    motorbike:{ el: document.getElementById("sndMotorbike") },                 // runner game
+  };
+  const btn = document.getElementById("muteBtn");
+  let muted = localStorage.getItem("fg_muted") === "1";
+  let current = "porcodio";
+  const timers = new Map();                 // el -> fade interval
+  Object.values(tracks).forEach(t => { t.el.loop = true; t.el.volume = 0; });
+  btn.textContent = muted ? "🔇" : "🔊";
+
+  // smoothly ramp one element's volume to a target; pause it when it hits 0
+  function fadeTo(el, target) {
+    const existing = timers.get(el); if (existing) clearInterval(existing);
+    const from = el.volume, t0 = performance.now();
+    const iv = setInterval(() => {
+      const p = Math.min(1, (performance.now() - t0) / FADE_MS);
+      el.volume = from + (target - from) * p;
+      if (p >= 1) { clearInterval(iv); timers.delete(el); if (target === 0) el.pause(); }
+    }, 30);
+    timers.set(el, iv);
+  }
+  function fadeOutOthers(exceptEl) {
+    Object.values(tracks).forEach(o => { if (o.el !== exceptEl && !o.el.paused) fadeTo(o.el, 0); });
+  }
+  function startTrack(t) {                   // fade the given track IN
+    if (muted) return;
+    const begin = () => { if (t.startAt != null && t.el.paused) { try { t.el.currentTime = t.startAt; } catch (e) {} } t.el.play().catch(() => {}); fadeTo(t.el, VOL); };
+    if (t.startAt != null && t.el.readyState < 1) t.el.addEventListener("loadedmetadata", begin, { once: true });
+    else begin();
+  }
+  // Crossfade: fade the old track out, fade the requested one in. Unknown/"silent" fades everything out.
+  function play(which) {
+    const t = tracks[which];
+    if (which === current && t && !t.el.paused) { if (!muted) fadeTo(t.el, VOL); return; }
+    current = which;
+    fadeOutOthers(t ? t.el : null);
+    if (t) startTrack(t);
+  }
+  btn.addEventListener("click", () => {
+    muted = !muted; localStorage.setItem("fg_muted", muted ? "1" : "0");
+    btn.textContent = muted ? "🔇" : "🔊";
+    if (muted) Object.values(tracks).forEach(t => fadeTo(t.el, 0));
+    else if (tracks[current]) startTrack(tracks[current]);
+  });
+  const kick = () => { if (tracks[current]) startTrack(tracks[current]); window.removeEventListener("pointerdown", kick); window.removeEventListener("keydown", kick); };
+  window.addEventListener("pointerdown", kick);
+  window.addEventListener("keydown", kick);
+  return { play };
+})();
+
+/* ==========================================================================
+   TRANSITION — curtain drop -> blackout -> 3·2·1 -> callback
+   ========================================================================== */
+const curtain = document.getElementById("curtain");
+const blackout = document.getElementById("blackout");
+const countdown = document.getElementById("countdown");
+const countN = document.getElementById("countN");
+
+function tryEnter() {
+  if (!currentInteract || !mapActive) return;
+  ballLabel.classList.remove("show");
+  BGM.play(currentInteract.music || "porcodio");   // each game's own track (runner keeps porcodio)
+  currentInteract.enter();
+}
+
+function runTransition(done) {
+  // 1) curtains drop (force a reflow first so the transform transition runs)
+  curtain.classList.remove("drop");
+  void curtain.offsetWidth;
+  curtain.classList.add("drop");
+  setTimeout(() => {
+    // 2) blackout covers, then snap the curtain back up behind it
+    blackout.classList.add("on");
+    setTimeout(() => {
+      curtain.classList.remove("drop");
+      // 3) countdown, then run the callback
+      countdownThen(done);
+    }, 550);
+  }, 1150);
+}
+
+function countdownThen(done) {
+  countdown.classList.add("on");
+  let n = 3;
+  countN.textContent = n;
+  countN.className = "n";
+  const step = () => {
+    n--;
+    if (n > 0) { countN.textContent = n; bump(); }
+    else if (n === 0) { countN.textContent = "GO!"; bump(); }
+    else {
+      countdown.classList.remove("on");
+      blackout.classList.remove("on");
+      done && done();
+      return;
+    }
+    setTimeout(step, 650);
+  };
+  const bump = () => { countN.classList.remove("n"); void countN.offsetWidth; countN.classList.add("n"); };
+  setTimeout(step, 650);
+}
+
+/* Reverse: fade the blackout in, run the game's stop(), reveal the map. */
+function backToMap(stopFn) {
+  blackout.classList.add("on");
+  setTimeout(() => {
+    stopFn && stopFn();
+    mapActive = true;
+    BGM.play("porcodio");                // back to the map track
+    setTimeout(() => blackout.classList.remove("on"), 60);
+    setTimeout(checkNewUnlocks, 500);    // announce any game this run just unlocked
+    setTimeout(updateGasBadges, 540);    // refresh the sprite gas badges
+  }, 400);
+}
+function transitionBackToMap() { backToMap(Level.stop); }
+
+/* ==========================================================================
+   LEVEL — football-maze mini-game
+   ========================================================================== */
+const Level = (() => {
+  const levelEl = document.getElementById("level");
+  const cursor = document.getElementById("ballCursor");
+  const goal = document.getElementById("goal");
+  const msg = document.getElementById("levelMsg");
+  const msgBig = document.getElementById("msgBig");
+  const msgSmall = document.getElementById("msgSmall");
+  const hudLives = document.getElementById("hudLives");
+  const hudWave = document.getElementById("hudWave");
+  const hudProg = document.getElementById("hudProg");
+  const hudBall = document.getElementById("hudBall");
+
+  const WALL_W = 70, MAX_LIVES = 3, HIT = 20;
+  const INVULN_MS = 1200, TRAIL_N = 6;
+  // three escalating waves — faster, tighter gap each time. `count` = how many
+  // pillar-pairs the wave lasts: wave 1 is double-length, wave 2 is 1.5x, the
+  // final wave is the original length (just faster). Wave 3 pillars are spaced
+  // a touch further apart so the speed doesn't make it unfair.
+  const WAVES = [
+    { gap: 190, speed: 3.4, spacing: 260, count: 16 },
+    { gap: 158, speed: 4.4, spacing: 214, count: 12 },
+    { gap: 132, speed: 5.6, spacing: 224, count: 8 },
+  ];
+  const cfg = () => WAVES[wave];
+  const TOTAL_WALLS = WAVES.reduce((a, w) => a + w.count, 0);
+  const wallsBefore = wv => WAVES.slice(0, wv).reduce((a, w) => a + w.count, 0);
+
+  let raf = null, walls = [], trail = [];
+  let running = false, phase = "run";        // run | goal
+  let curX = 0, curY = 0, levelId = null, wave = 0;
+  let lives = MAX_LIVES, passed = 0, spin = 0, invulnUntil = 0;
+  let posBuf = [];
+
+  function start(id) {
+    levelId = id;
+    mapActive = false;
+    levelEl.classList.add("on");
+    msg.classList.remove("on");
+    goal.classList.remove("on");
+    curX = window.innerWidth * 0.16;
+    curY = window.innerHeight * 0.5;
+    cursor.style.display = "block"; cursor.classList.remove("invuln");
+    positionCursor();
+    wave = 0; lives = MAX_LIVES; passed = 0; invulnUntil = 0;
+    buildTrail();
+    buildWalls();
+    updateHud();
+    running = true; phase = "run";
+    lastFrame = performance.now();
+    if (!raf) raf = requestAnimationFrame(loop);
+  }
+
+  // ---- HUD ----
+  function updateHud() {
+    let l = ""; for (let i = 0; i < MAX_LIVES; i++) l += '<span class="life' + (i < lives ? "" : " lost") + '">⚽</span>';
+    hudLives.innerHTML = l;
+    let w = "WAVE"; for (let i = 0; i < WAVES.length; i++) w += '<span class="pip' + (i <= wave ? " on" : "") + '"></span>';
+    hudWave.innerHTML = w;
+    const frac = Math.min(1, (wallsBefore(wave) + passed) / TOTAL_WALLS);
+    hudProg.style.width = (frac * 100) + "%";
+    hudBall.style.left = (frac * 100) + "%";
+  }
+
+  // ---- motion trail (fading ghosts behind the ball) ----
+  function buildTrail() {
+    trail.forEach(t => t.remove()); trail = []; posBuf = [];
+    for (let i = 0; i < TRAIL_N; i++) {
+      const d = document.createElement("div"); d.className = "ball-trail";
+      levelEl.appendChild(d); trail.push(d);
+    }
+  }
+
+  // ---- walls ----
+  function buildWalls() {
+    walls.forEach(w => { w.top.remove(); w.bot.remove(); });
+    walls = [];
+    for (let i = 0; i < cfg().count; i++) {
+      const top = document.createElement("div"), bot = document.createElement("div");
+      top.className = "wall wall-top"; bot.className = "wall wall-bot";
+      top.style.width = bot.style.width = WALL_W + "px";
+      levelEl.appendChild(top); levelEl.appendChild(bot);
+      const w = { top, bot, x: 0, gapY: 0, gap: 0, scored: false };
+      walls.push(w);
+      placeWall(w, window.innerWidth + WALL_W + i * cfg().spacing);
+    }
+  }
+  function placeWall(w, x) {
+    const H = window.innerHeight, GAP = cfg().gap;
+    w.x = x; w.gap = GAP; w.scored = false;
+    w.gapY = 80 + Math.random() * Math.max(60, H - GAP - 170);
+    w.top.style.top = "0px"; w.top.style.height = w.gapY + "px";
+    w.bot.style.top = (w.gapY + GAP) + "px"; w.bot.style.height = (H - w.gapY - GAP) + "px";
+    const tf = "translateX(" + x + "px)";
+    w.top.style.transform = w.bot.style.transform = tf;
+  }
+  function resetWalls() {
+    walls.forEach((w, i) => placeWall(w, window.innerWidth + WALL_W + i * cfg().spacing));
+  }
+
+  function positionCursor() {
+    spin += 2;   // slow, steady roll
+    cursor.style.transform = "translate(" + curX + "px," + curY + "px) translate(-50%,-50%) rotate(" + spin + "deg)";
+    // push current position into the ring buffer, render fading trail ghosts
+    posBuf.unshift({ x: curX, y: curY }); if (posBuf.length > TRAIL_N * 3) posBuf.pop();
+    for (let i = 0; i < trail.length; i++) {
+      const p = posBuf[(i + 1) * 2]; if (!p) { trail[i].style.display = "none"; continue; }
+      const k = 1 - i / TRAIL_N;
+      trail[i].style.display = "block";
+      trail[i].style.opacity = (0.42 * k).toFixed(2);
+      const s = 0.5 + 0.5 * k;
+      trail[i].style.transform = "translate(" + p.x + "px," + p.y + "px) translate(-50%,-50%) scale(" + s + ")";
+    }
+  }
+
+  function onMove(e) {
+    if (!running) return;
+    const px = e.touches ? e.touches[0].clientX : e.clientX;
+    const py = e.touches ? e.touches[0].clientY : e.clientY;
+    curX = px; curY = py;
+  }
+  levelEl.addEventListener("pointermove", onMove);
+  levelEl.addEventListener("touchmove", onMove, { passive: true });
+
+  let lastFrame = 0;
+  function loop(now) {
+    const dt = Math.min(2.5, (now - lastFrame) / 16.67); lastFrame = now;
+    if (running && phase === "run") {
+      let allPassed = true;
+      const spd = cfg().speed;
+      let advanced = false;
+      walls.forEach(w => {
+        w.x -= spd * dt;
+        const tf = "translateX(" + w.x + "px)";
+        w.top.style.transform = tf; w.bot.style.transform = tf;
+        if (w.x > -WALL_W) allPassed = false;
+        // count a pillar cleanly passed -> advances the wave meter
+        if (!w.scored && w.x + WALL_W < curX) { w.scored = true; passed++; advanced = true; }
+      });
+      const invuln = now < invulnUntil;
+      if (!invuln && hitAnyWall()) tackle();
+      else if (allPassed) { if (wave < WAVES.length - 1) advanceWave(); else showGoal(); }
+      else if (advanced) updateHud();
+    }
+    if (running && phase === "goal") { if (overlapGoal()) win(); }
+    positionCursor();
+    raf = requestAnimationFrame(loop);
+  }
+
+  function hitAnyWall() {
+    const l = curX - HIT, r = curX + HIT, t = curY - HIT, b = curY + HIT;
+    for (const w of walls) {
+      const wl = w.x, wr = w.x + WALL_W;
+      if (r > wl && l < wr) {
+        if (t < w.gapY || b > w.gapY + w.gap) return true;
+      }
+    }
+    return false;
+  }
+
+  // A tackle costs one life + brief invulnerability. Only losing ALL lives
+  // resets the wave — a single bump no longer wipes your progress.
+  function tackle() {
+    lives--;
+    updateHud();
+    levelEl.classList.add("flash");
+    setTimeout(() => levelEl.classList.remove("flash"), 300);
+    if (lives <= 0) {
+      running = false;
+      msgBig.textContent = "TACKLED!";
+      msgSmall.textContent = "lost the ball — restarting the wave";
+      msg.classList.add("on");
+      cursor.classList.remove("invuln");
+      setTimeout(() => {
+        lives = MAX_LIVES; passed = 0; resetWalls(); updateHud();
+        msg.classList.remove("on"); running = true; phase = "run"; lastFrame = performance.now();
+      }, 1100);
+    } else {
+      invulnUntil = performance.now() + INVULN_MS;
+      cursor.classList.add("invuln");
+      setTimeout(() => cursor.classList.remove("invuln"), INVULN_MS);
+    }
+  }
+
+  function advanceWave() {
+    running = false;
+    wave++; passed = 0; lives = MAX_LIVES;      // fresh legs each wave
+    updateHud();
+    msgBig.textContent = "WAVE " + (wave + 1) + " / " + WAVES.length;
+    msgSmall.textContent = wave === WAVES.length - 1 ? "FINAL WAVE — faster & tighter!" : "harder now — keep dribbling!";
+    msg.classList.add("on");
+    buildWalls();
+    setTimeout(() => { msg.classList.remove("on"); running = true; phase = "run"; lastFrame = performance.now(); }, 1200);
+  }
+
+  function showGoal() {
+    phase = "goal";
+    passed = cfg().count; updateHud();
+    goal.style.left = (window.innerWidth - 240) + "px";
+    goal.style.top = (window.innerHeight / 2 - 64) + "px";
+    goal.classList.add("on");
+  }
+  function overlapGoal() {
+    const gr = goal.getBoundingClientRect();
+    return curX > gr.left - HIT && curX < gr.right + HIT && curY > gr.top - HIT && curY < gr.bottom + HIT;
+  }
+
+  function confettiBurst() {
+    const cols = ["#009246", "#ffffff", "#ce2b37", "#ffd23e", "#38e08a"];
+    for (let i = 0; i < 70; i++) {
+      const c = document.createElement("div"); c.className = "confetti";
+      c.style.left = Math.random() * 100 + "vw";
+      c.style.background = cols[i % cols.length];
+      c.style.transform = "rotate(" + Math.random() * 360 + "deg)";
+      document.body.appendChild(c);
+      const dur = 1400 + Math.random() * 1400;
+      c.animate([
+        { transform: c.style.transform + " translateY(0)", opacity: 1 },
+        { transform: "rotate(" + Math.random() * 720 + "deg) translateY(105vh)", opacity: 0.9 }
+      ], { duration: dur, easing: "ease-in" });
+      setTimeout(() => c.remove(), dur);
+    }
+  }
+
+  function win() {
+    running = false;
+    const already = beaten.has(levelId);
+    awardGas(levelId);
+    confettiBurst();
+    msgBig.textContent = "GOOOAL! ⚽";
+    msgSmall.textContent = already ? "Level already beaten — no extra gas." : "+1 gas can!";
+    msg.classList.add("on");
+    setTimeout(() => { msg.classList.remove("on"); transitionBackToMap(); }, 2100);
+  }
+
+  function stop() {
+    running = false;
+    if (raf) { cancelAnimationFrame(raf); raf = null; }
+    walls.forEach(w => { w.top.remove(); w.bot.remove(); });
+    walls = [];
+    trail.forEach(t => t.remove()); trail = [];
+    goal.classList.remove("on");
+    cursor.style.display = "none"; cursor.classList.remove("invuln");
+    levelEl.classList.remove("on");
+  }
+
+  function leave() { running = false; transitionBackToMap(); }
+
+  return { start, stop, leave };
+})();
+
+/* ==========================================================================
+   ATLAS — Revolut coding quiz (matrix vibe) -> "fimply" roulette -> gas
+   ========================================================================== */
+const Atlas = (() => {
+  const atlasEl = document.getElementById("atlas");
+  const introEl = document.getElementById("atlasIntro");
+  const quizEl = document.getElementById("atlasQuiz");
+  const rouletteEl = document.getElementById("atlasRoulette");
+  const progressEl = document.getElementById("atlasProgress");
+  const qEl = document.getElementById("atlasQ");
+  const answersEl = document.getElementById("atlasAnswers");
+  const submitBtn = document.getElementById("atlasSubmit");
+  const feedbackEl = document.getElementById("atlasFeedback");
+  const langEl = document.getElementById("atlasLang");
+  const hintBtn = document.getElementById("atlasHintBtn");
+  const hintEl = document.getElementById("atlasHint");
+  const wheel = document.getElementById("wheel");
+  const spinBtn = document.getElementById("spinBtn");
+  const rouletteMsg = document.getElementById("rouletteMsg");
+
+  let phase = "intro", idx = 0, levelId = null;
+  let rainTimer = null, rainResize = null;
+
+  // ---- ~100-question pool across the languages Francesco knows.
+  // Each play pulls a random 15. Fewer questions on the harder langs (Java/C#/SQL).
+  // Every question carries a `lang` badge + a `hint`.
+  const POOL = [
+    // ============================ PYTHON (20) ============================
+    { lang:"python", type:"mc", q:'What does <code>len("Revolut")</code> return?', options:["6","7","8","\"Revolut\""], answer:"7", hint:"Count every character, including the last one." },
+    { lang:"python", type:"tf", q:"In Python, indentation is part of the syntax, not just style.", answer:true, hint:"Blocks are defined by whitespace — no curly braces." },
+    { lang:"python", type:"blank", q:"Fill the blank so it prints the text:", code:'_____("Hello Atlas")', answer:["print"], hint:"The built-in that writes to stdout." },
+    { lang:"python", type:"multi", q:"Select ALL valid Python built-in types.", options:["list","dict","int","arrayList"], answer:["list","dict","int"], hint:"One of these is Java's naming style, not Python's." },
+    { lang:"python", type:"mc", q:"What is the value of this expression?", code:"2 ** 3", options:["6","8","9","5"], answer:"8", hint:"** is exponentiation, not multiplication." },
+    { lang:"python", type:"order", q:"Arrange the tokens into a valid loop header.", tokens:["for","i","in","range(5):"], answer:["for","i","in","range(5):"], hint:"for <var> in <iterable>:" },
+    { lang:"python", type:"blank", q:"Complete add() so it returns the sum of a and b:", code:"def add(a, b):\n    return a ___ b", answer:["+"], hint:"Basic arithmetic operator." },
+    { lang:"python", type:"tf", q:"In Python, <code>==</code> assigns a value to a variable.", answer:false, hint:"== compares. A single = assigns." },
+    { lang:"python", type:"multi", q:"Select ALL Python keywords.", options:["for","while","function","elif"], answer:["for","while","elif"], hint:"Python spells 'else if' as one word, and doesn't use 'function'." },
+    { lang:"python", type:"mc", q:"What is the result?", code:'"ab" * 2', options:['"abab"','"ab2"','"aabb"','Error'], answer:'"abab"', hint:"Multiplying a string repeats it." },
+    { lang:"python", type:"mc", q:"What does this print?", code:"print(type([]).__name__)", options:["list","array","tuple","set"], answer:"list", hint:"[] is the literal for one specific collection." },
+    { lang:"python", type:"blank", q:"Make a list comprehension of squares 0..4:", code:"[x___2 for x in range(5)]", answer:["**"], hint:"Exponent operator again." },
+    { lang:"python", type:"tf", q:"Tuples in Python are immutable.", answer:true, hint:"Once created you cannot change a tuple's items." },
+    { lang:"python", type:"mc", q:"Result of <code>3 // 2</code>?", options:["1","1.5","2","0"], answer:"1", hint:"// is floor (integer) division." },
+    { lang:"python", type:"blank", q:"Fill in to open a file for reading:", code:'open("f.txt", "___")', answer:["r"], hint:"The mode letter for 'read'." },
+    { lang:"python", type:"mc", q:"What does <code>bool([])</code> return?", options:["False","True","None","Error"], answer:"False", hint:"An empty collection is 'falsy'." },
+    { lang:"python", type:"multi", q:"Which are valid ways to make a dict?", options:["dict()","{}","{ 'a': 1 }","[ 'a', 1 ]"], answer:["dict()","{}","{ 'a': 1 }"], hint:"Square brackets build a list, not a dict." },
+    { lang:"python", type:"tf", q:"<code>None</code> is the same as <code>0</code> in Python.", answer:false, hint:"None is its own singleton — absence of a value." },
+    { lang:"python", type:"mc", q:"What prefixes an f-string?", code:'x = 5\n_"value is {x}"', options:["f","s","r","b"], answer:"f", hint:"The letter stands for 'formatted'." },
+    { lang:"python", type:"mc", q:"What does <code>list(range(1,4))</code> give?", options:["[1, 2, 3]","[1, 2, 3, 4]","[0, 1, 2, 3]","[1, 4]"], answer:"[1, 2, 3]", hint:"range stops BEFORE the second number." },
+
+    // ========================== JAVASCRIPT (20) =========================
+    { lang:"javascript", type:"mc", q:"What does <code>typeof null</code> return?", options:['"object"','"null"','"undefined"','"number"'], answer:'"object"', hint:"A famous, long-standing JS quirk." },
+    { lang:"javascript", type:"tf", q:"<code>const</code> prevents reassigning the variable binding.", answer:true, hint:"You can still mutate an object it points to, but not rebind it." },
+    { lang:"javascript", type:"mc", q:"Result of <code>0.1 + 0.2 === 0.3</code>?", options:["false","true","NaN","Error"], answer:"false", hint:"Floating-point rounding — the sum is 0.30000000000000004." },
+    { lang:"javascript", type:"blank", q:"Log a value to the browser console:", code:"console.___('hi')", answer:["log"], hint:"The most common console method." },
+    { lang:"javascript", type:"multi", q:"Select ALL falsy values in JS.", options:["0","''","null","'0'"], answer:["0","''","null"], hint:"A non-empty string — even '0' — is truthy." },
+    { lang:"javascript", type:"mc", q:"What is <code>[1,2,3].length</code>?", options:["3","2","4","undefined"], answer:"3", hint:"Just count the elements." },
+    { lang:"javascript", type:"order", q:"Order the tokens into an arrow function.", tokens:["const","f","=","() => 1"], answer:["const","f","=","() => 1"], hint:"const name = params => body" },
+    { lang:"javascript", type:"tf", q:"<code>==</code> does type coercion; <code>===</code> does not.", answer:true, hint:"Triple-equals is the strict, no-coercion comparison." },
+    { lang:"javascript", type:"mc", q:"Result of <code>'5' + 3</code>?", options:['"53"',"8","15","NaN"], answer:'"53"', hint:"+ with a string concatenates rather than adds." },
+    { lang:"javascript", type:"mc", q:"Result of <code>'5' - 3</code>?", options:["2",'"53"',"NaN","-2"], answer:"2", hint:"Unlike +, the - operator coerces strings to numbers." },
+    { lang:"javascript", type:"blank", q:"Turn a JS object into a JSON string:", code:"JSON.___(obj)", answer:["stringify"], hint:"The opposite of JSON.parse." },
+    { lang:"javascript", type:"multi", q:"Which declare a variable?", options:["let","var","const","def"], answer:["let","var","const"], hint:"'def' belongs to Python." },
+    { lang:"javascript", type:"tf", q:"Arrow functions have their own <code>this</code> binding.", answer:false, hint:"They inherit `this` from the enclosing scope." },
+    { lang:"javascript", type:"mc", q:"What does <code>Array.isArray([])</code> return?", options:["true","false","undefined","'object'"], answer:"true", hint:"[] really is an array." },
+    { lang:"javascript", type:"blank", q:"Add an element to the end of arr:", code:"arr.___(4)", answer:["push"], hint:"Opposite of pop." },
+    { lang:"javascript", type:"mc", q:"Result of <code>Boolean(NaN)</code>?", options:["false","true","NaN","0"], answer:"false", hint:"NaN is falsy." },
+    { lang:"javascript", type:"tf", q:"<code>let</code> is block-scoped.", answer:true, hint:"Unlike var, it's confined to its { } block." },
+    { lang:"javascript", type:"mc", q:"What does <code>[10,1,2].sort()</code> give?", options:["[1, 10, 2]","[1, 2, 10]","[10, 2, 1]","[2, 1, 10]"], answer:"[1, 10, 2]", hint:"Default sort compares as STRINGS, so '10' < '2'." },
+    { lang:"javascript", type:"blank", q:"Wait for a promise inside an async fn:", code:"const v = ___ fetch(u)", answer:["await"], hint:"Pairs with the `async` keyword." },
+    { lang:"javascript", type:"mc", q:"Result of <code>typeof undefined</code>?", options:['"undefined"','"object"','"null"','"none"'], answer:'"undefined"', hint:"This one is NOT the buggy case." },
+
+    // ========================== TYPESCRIPT (17) =========================
+    { lang:"typescript", type:"mc", q:"Which type means 'any value, opt out of checking'?", options:["any","unknown","never","void"], answer:"any", hint:"The escape hatch you're told to avoid." },
+    { lang:"typescript", type:"tf", q:"TypeScript types are erased at runtime (they don't exist in the JS output).", answer:true, hint:"They're compile-time only — the emitted JS has no types." },
+    { lang:"typescript", type:"blank", q:"Annotate x as a number:", code:"let x: ___ = 5", answer:["number"], hint:"Lowercase primitive type name." },
+    { lang:"typescript", type:"mc", q:"What does the <code>?</code> in <code>name?: string</code> mean?", options:["optional property","nullable only","readonly","private"], answer:"optional property", hint:"The property may be absent." },
+    { lang:"typescript", type:"multi", q:"Select ALL primitive TS types.", options:["string","number","boolean","Array"], answer:["string","number","boolean"], hint:"Array is a generic object type, not a primitive." },
+    { lang:"typescript", type:"mc", q:"Which keyword defines a reusable object shape?", options:["interface","struct","record","shape"], answer:"interface", hint:"Also achievable with `type`, but this is the classic keyword." },
+    { lang:"typescript", type:"tf", q:"<code>unknown</code> is safer than <code>any</code> because you must narrow it before use.", answer:true, hint:"unknown forces a check; any lets anything through." },
+    { lang:"typescript", type:"blank", q:"Make T a type parameter (generic):", code:"function id<___>(x: T): T { return x }", answer:["T"], hint:"Just the single letter used everywhere else in the signature." },
+    { lang:"typescript", type:"mc", q:"What does <code>string | number</code> describe?", options:["a union type","an intersection","a tuple","a generic"], answer:"a union type", hint:"The | means 'either/or'." },
+    { lang:"typescript", type:"mc", q:"What does <code>as</code> do in <code>x as string</code>?", options:["type assertion","cast at runtime","rename","import"], answer:"type assertion", hint:"You're telling the compiler the type; nothing happens at runtime." },
+    { lang:"typescript", type:"tf", q:"An <code>enum</code> in TS DOES emit real code at runtime.", answer:true, hint:"Unlike types, a normal (non-const) enum produces a JS object." },
+    { lang:"typescript", type:"blank", q:"Type an array of numbers:", code:"let ns: number___ = []", answer:["[]"], hint:"Append the same brackets you'd use to index it." },
+    { lang:"typescript", type:"mc", q:"What does <code>readonly</code> do on a property?", options:["blocks reassignment","hides it","makes it optional","freezes the object"], answer:"blocks reassignment", hint:"You can read it but not write it after init." },
+    { lang:"typescript", type:"multi", q:"Which are valid ways to declare a type?", options:["type Foo = ...","interface Foo {}","typedef Foo","class Foo {}"], answer:["type Foo = ...","interface Foo {}","class Foo {}"], hint:"'typedef' is a C thing." },
+    { lang:"typescript", type:"tf", q:"<code>never</code> is the type of a function that never returns.", answer:true, hint:"e.g. one that always throws or loops forever." },
+    { lang:"typescript", type:"mc", q:"<code>type A = string & { brand: 'x' }</code> uses which operator?", options:["intersection","union","optional","spread"], answer:"intersection", hint:"& combines types into one that satisfies both." },
+    { lang:"typescript", type:"blank", q:"Mark a param optional:", code:"function f(a___: number) {}", answer:["?"], hint:"A single punctuation mark after the name." },
+
+    // ============================== SQL (16) ============================
+    { lang:"sql", type:"blank", q:"Fetch every column from users:", code:"SELECT ___ FROM users;", answer:["*"], hint:"The wildcard for 'all columns'." },
+    { lang:"sql", type:"mc", q:"Which clause filters rows?", options:["WHERE","HAVING","GROUP BY","ORDER BY"], answer:"WHERE", hint:"It restricts which rows come back (before grouping)." },
+    { lang:"sql", type:"tf", q:"<code>NULL = NULL</code> evaluates to TRUE in SQL.", answer:false, hint:"NULL is 'unknown'; use IS NULL instead." },
+    { lang:"sql", type:"mc", q:"Which keyword removes duplicate rows?", options:["DISTINCT","UNIQUE","DEDUP","ONLY"], answer:"DISTINCT", hint:"Goes right after SELECT." },
+    { lang:"sql", type:"order", q:"Order these clauses correctly.", tokens:["SELECT","FROM","WHERE","ORDER BY"], answer:["SELECT","FROM","WHERE","ORDER BY"], hint:"Pick columns, then table, then filter, then sort." },
+    { lang:"sql", type:"mc", q:"Which JOIN keeps unmatched LEFT rows?", options:["LEFT JOIN","INNER JOIN","CROSS JOIN","RIGHT JOIN"], answer:"LEFT JOIN", hint:"The name tells you which side is preserved." },
+    { lang:"sql", type:"blank", q:"Count rows in orders:", code:"SELECT ___(*) FROM orders;", answer:["count"], hint:"The aggregate that tallies rows." },
+    { lang:"sql", type:"mc", q:"Which clause filters AFTER a GROUP BY aggregate?", options:["HAVING","WHERE","FILTER","ON"], answer:"HAVING", hint:"WHERE runs before grouping; this one runs after." },
+    { lang:"sql", type:"tf", q:"<code>DELETE FROM t;</code> with no WHERE removes every row.", answer:true, hint:"No filter means all rows match." },
+    { lang:"sql", type:"blank", q:"Sort results newest-first by created_at:", code:"ORDER BY created_at ___;", answer:["desc"], hint:"Descending order keyword." },
+    { lang:"sql", type:"mc", q:"What does <code>COUNT(DISTINCT user_id)</code> return?", options:["number of unique users","total rows","NULL count","first user"], answer:"number of unique users", hint:"DISTINCT drops repeats before counting." },
+    { lang:"sql", type:"multi", q:"Select ALL aggregate functions.", options:["SUM","AVG","MAX","JOIN"], answer:["SUM","AVG","MAX"], hint:"JOIN combines tables — it doesn't aggregate." },
+    { lang:"sql", type:"blank", q:"Add a new row into users:", code:"___ INTO users (id) VALUES (1);", answer:["insert"], hint:"The statement that creates rows." },
+    { lang:"sql", type:"mc", q:"Which keyword updates existing rows?", options:["UPDATE","ALTER","MODIFY","SET"], answer:"UPDATE", hint:"ALTER changes schema; this changes data." },
+    { lang:"sql", type:"tf", q:"<code>GROUP BY</code> collapses rows that share a value into one group.", answer:true, hint:"That's exactly what enables aggregates per group." },
+    { lang:"sql", type:"mc", q:"Which limits results to 10 rows (Postgres/MySQL)?", options:["LIMIT 10","TOP 10","ROWNUM 10","FIRST 10"], answer:"LIMIT 10", hint:"TOP is the SQL Server spelling; this is the other one." },
+
+    // ============================= JAVA (14) ============================
+    { lang:"java", type:"mc", q:"Which is Java's entry-point method signature?", options:["public static void main(String[] args)","def main():","function main()","static main(args)"], answer:"public static void main(String[] args)", hint:"public, static, void, and a String array." },
+    { lang:"java", type:"tf", q:"In Java every variable must have a declared type.", answer:true, hint:"It's statically typed (though `var` can infer locally)." },
+    { lang:"java", type:"blank", q:"Print a line to stdout:", code:'System.out.___("hi");', answer:["println"], hint:"'print line' — the ln version." },
+    { lang:"java", type:"mc", q:"What is <code>int</code>?", options:["a primitive","an object","an interface","a wrapper class"], answer:"a primitive", hint:"Its object wrapper is Integer, but int itself is not one." },
+    { lang:"java", type:"multi", q:"Select ALL Java access modifiers.", options:["public","private","protected","internal"], answer:["public","private","protected"], hint:"'internal' is a C# modifier, not Java." },
+    { lang:"java", type:"tf", q:"Java is compiled to bytecode that runs on the JVM.", answer:true, hint:"The .class files run on the virtual machine." },
+    { lang:"java", type:"mc", q:"Which keyword creates an object?", options:["new","malloc","make","alloc"], answer:"new", hint:"You call it right before the constructor." },
+    { lang:"java", type:"blank", q:"Declare an integer variable count = 0:", code:"___ count = 0;", answer:["int"], hint:"The 32-bit primitive integer type." },
+    { lang:"java", type:"mc", q:"What does <code>\"a\".equals(\"a\")</code> return?", options:["true","false","0","null"], answer:"true", hint:".equals compares content; use it instead of == for strings." },
+    { lang:"java", type:"tf", q:"<code>==</code> on two String objects compares references, not content.", answer:true, hint:"That's why you reach for .equals()." },
+    { lang:"java", type:"mc", q:"Which collection type disallows duplicates?", options:["Set","List","Map","Array"], answer:"Set", hint:"Its whole point is uniqueness." },
+    { lang:"java", type:"blank", q:"Start a class named Bank:", code:"public ___ Bank {}", answer:["class"], hint:"The keyword that defines a class." },
+    { lang:"java", type:"mc", q:"What does <code>final</code> on a variable mean?", options:["cannot be reassigned","cannot be null","is static","is private"], answer:"cannot be reassigned", hint:"Java's version of a constant binding." },
+    { lang:"java", type:"multi", q:"Which are valid Java primitive types?", options:["boolean","double","char","string"], answer:["boolean","double","char"], hint:"String is a class (capital S), not a primitive." },
+
+    // ============================== C# (13) =============================
+    { lang:"csharp", type:"blank", q:"Print a line to the console:", code:'Console.___("hi");', answer:["writeline"], hint:"'Write' + 'Line' as one PascalCase method." },
+    { lang:"csharp", type:"mc", q:"Which keyword makes a property auto-implemented?", options:["get; set;","prop","auto","field"], answer:"get; set;", hint:"Accessors in braces with no body." },
+    { lang:"csharp", type:"tf", q:"C# runs on the .NET runtime.", answer:true, hint:"It compiles to IL that runs on the CLR." },
+    { lang:"csharp", type:"multi", q:"Select ALL C# access modifiers.", options:["public","private","internal","protected"], answer:["public","private","internal","protected"], hint:"C# has 'internal' — all four are valid here." },
+    { lang:"csharp", type:"mc", q:"What does <code>var</code> do in C#?", options:["infers the static type","makes it dynamic","makes it nullable","makes it global"], answer:"infers the static type", hint:"The type is still fixed at compile time — just inferred." },
+    { lang:"csharp", type:"blank", q:"Declare a string variable name:", code:'___ name = "Fra";', answer:["string","var"], hint:"Either the explicit type or the inference keyword works." },
+    { lang:"csharp", type:"tf", q:"In C#, <code>string</code> is an alias for <code>System.String</code>.", answer:true, hint:"The lowercase keyword maps to the framework type." },
+    { lang:"csharp", type:"mc", q:"Which loop runs its body at least once?", options:["do...while","while","for","foreach"], answer:"do...while", hint:"The condition is checked at the bottom." },
+    { lang:"csharp", type:"mc", q:"What does <code>??</code> (null-coalescing) do?", options:["returns left if not null, else right","logical or","ternary","cast"], answer:"returns left if not null, else right", hint:"a ?? b gives a unless a is null." },
+    { lang:"csharp", type:"blank", q:"Iterate items with a foreach:", code:"foreach (var x ___ items) {}", answer:["in"], hint:"foreach (var x __ collection)" },
+    { lang:"csharp", type:"tf", q:"C# supports <code>async</code>/<code>await</code> for asynchronous code.", answer:true, hint:"Same keyword pair you'll recognize from JS/TS." },
+    { lang:"csharp", type:"mc", q:"Which keyword marks a class you cannot inherit from?", options:["sealed","final","static","const"], answer:"sealed", hint:"Java uses 'final' for this; C# uses a different word." },
+    { lang:"csharp", type:"blank", q:"Define a namespace called App:", code:"___ App {}", answer:["namespace"], hint:"C#'s way to group types under a name." },
+  ];
+  // Filled per play with a random 15 from POOL.
+  let QUESTIONS = [];
+  const LANG_LABEL = { python:"python", javascript:"javascript", typescript:"typescript", sql:"sql", java:"java", csharp:"c#" };
+
+  // ---- lifecycle ----
+  function start(id) {
+    levelId = id; mapActive = false;
+    atlasEl.classList.add("on");
+    showPanel("intro");
+    startRain();
+  }
+  function pressE() { if (phase === "intro") beginQuiz(); }
+  function leave() { backToMap(stop); }
+  function stop() { stopRain(); atlasEl.classList.remove("on"); }
+
+  function showPanel(p) {
+    phase = p;
+    introEl.style.display    = p === "intro"    ? "flex" : "none";
+    quizEl.style.display     = p === "quiz"     ? "flex" : "none";
+    rouletteEl.style.display = p === "roulette" ? "flex" : "none";
+  }
+
+  // ---- matrix rain background ----
+  function startRain() {
+    const c = document.getElementById("matrixRain"), ctx = c.getContext("2d");
+    const resize = () => { c.width = window.innerWidth; c.height = window.innerHeight; };
+    resize(); rainResize = resize; window.addEventListener("resize", resize);
+    const step = 14;
+    let drops = new Array(Math.ceil(window.innerWidth / step)).fill(0).map(() => Math.random() * window.innerHeight);
+    const chars = "01<>[]{}();=+*/日ｱｲｳﾊﾐﾓ".split("");
+    rainTimer = setInterval(() => {
+      ctx.fillStyle = "rgba(3,6,10,0.09)"; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.fillStyle = "#39d970"; ctx.font = step + "px monospace";
+      const cols = Math.ceil(c.width / step);
+      for (let i = 0; i < cols; i++) {
+        const dy = drops[i] || 0;
+        ctx.fillText(chars[Math.floor(Math.random() * chars.length)], i * step, dy);
+        drops[i] = (dy > c.height && Math.random() > 0.975) ? 0 : dy + step;
+      }
+    }, 55);
+  }
+  function stopRain() {
+    if (rainTimer) { clearInterval(rainTimer); rainTimer = null; }
+    if (rainResize) { window.removeEventListener("resize", rainResize); rainResize = null; }
+  }
+
+  // ---- quiz ----
+  function beginQuiz() { QUESTIONS = shuffle(POOL.slice()).slice(0, 15); idx = 0; showPanel("quiz"); render(); }
+  function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+  function esc(s) { return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function optBtn(text) { const b = document.createElement("button"); b.className = "atlas-opt"; b.textContent = text; return b; }
+
+  function render() {
+    const q = QUESTIONS[idx];
+    progressEl.textContent = String(idx + 1).padStart(2, "0") + " / " + QUESTIONS.length;
+    langEl.textContent = "// " + (LANG_LABEL[q.lang] || q.lang);
+    feedbackEl.textContent = ""; feedbackEl.className = "atlas-feedback";
+    // reset the per-question hint
+    hintEl.textContent = ""; hintEl.className = "atlas-hint";
+    hintBtn.className = "atlas-hintbtn"; hintBtn.textContent = "💡 hint";
+    hintBtn.onclick = () => {
+      hintEl.textContent = q.hint || "no hint for this one — you've got it."; hintEl.className = "atlas-hint show";
+      hintBtn.className = "atlas-hintbtn spent"; hintBtn.textContent = "💡 hint shown";
+      hintBtn.onclick = null;
+    };
+    qEl.innerHTML = q.q + (q.code ? "<pre>" + esc(q.code) + "</pre>" : "");
+    answersEl.innerHTML = ""; answersEl.className = "atlas-answers";
+    submitBtn.style.display = "none"; submitBtn.onclick = null;
+
+    if (q.type === "mc") q.options.forEach(opt => { const b = optBtn(opt); b.onclick = () => judge(opt === q.answer, b); answersEl.appendChild(b); });
+    else if (q.type === "tf") [["True", true], ["False", false]].forEach(([lab, val]) => { const b = optBtn(lab); b.onclick = () => judge(val === q.answer, b); answersEl.appendChild(b); });
+    else if (q.type === "blank") renderBlank(q);
+    else if (q.type === "multi") renderMulti(q);
+    else if (q.type === "order") renderOrder(q);
+  }
+
+  function renderBlank(q) {
+    answersEl.className = "atlas-answers stack";
+    const inp = document.createElement("input");
+    inp.className = "atlas-blank"; inp.placeholder = "type here";
+    inp.autocapitalize = "off"; inp.autocomplete = "off"; inp.spellcheck = false;
+    answersEl.appendChild(inp);
+    const submit = () => judge(q.answer.map(a => a.toLowerCase()).includes(inp.value.trim().toLowerCase()), inp);
+    inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); submit(); } });
+    submitBtn.style.display = "inline-block"; submitBtn.onclick = submit;
+    setTimeout(() => inp.focus(), 60);
+  }
+
+  function renderMulti(q) {
+    const sel = new Set();
+    q.options.forEach(opt => {
+      const b = optBtn(opt);
+      b.onclick = () => { if (sel.has(opt)) { sel.delete(opt); b.classList.remove("sel"); } else { sel.add(opt); b.classList.add("sel"); } };
+      answersEl.appendChild(b);
+    });
+    submitBtn.style.display = "inline-block";
+    submitBtn.onclick = () => { const want = new Set(q.answer); judge(sel.size === want.size && [...want].every(a => sel.has(a)), null); };
+  }
+
+  function renderOrder(q) {
+    answersEl.className = "atlas-answers stack";
+    const slotsWrap = document.createElement("div"); slotsWrap.className = "atlas-slots";
+    const bank = document.createElement("div"); bank.className = "atlas-slots";
+    const n = q.answer.length, placed = [], slots = [];
+    for (let i = 0; i < n; i++) { const s = document.createElement("div"); s.className = "atlas-slot"; slotsWrap.appendChild(s); slots.push(s); }
+    shuffle(q.tokens.slice()).forEach(tok => {
+      const t = document.createElement("div"); t.className = "atlas-token"; t.textContent = tok;
+      t.onclick = () => {
+        if (t.classList.contains("used") || placed.length >= n) return;
+        const i = placed.length; placed.push({ tok, el: t }); t.classList.add("used");
+        slots[i].textContent = tok; slots[i].classList.add("filled");
+      };
+      bank.appendChild(t);
+    });
+    slots.forEach((s, i) => { s.onclick = () => { if (placed.length && i === placed.length - 1) { const last = placed.pop(); last.el.classList.remove("used"); s.textContent = ""; s.classList.remove("filled"); } }; });
+    answersEl.appendChild(slotsWrap); answersEl.appendChild(bank);
+    submitBtn.style.display = "inline-block";
+    submitBtn.onclick = () => { const seq = placed.map(p => p.tok); judge(seq.length === n && seq.every((t, i) => t === q.answer[i]), null); };
+  }
+
+  function judge(ok, el) {
+    if (ok) {
+      if (el) el.classList.add("right");
+      feedbackEl.textContent = "> compiled ✓"; feedbackEl.className = "atlas-feedback ok";
+      idx++;
+      setTimeout(idx >= QUESTIONS.length ? beatQuiz : render, 650);
+    } else {
+      if (el) el.classList.add("wrong");
+      feedbackEl.textContent = "> SEGFAULT // wrong — retry."; feedbackEl.className = "atlas-feedback err";
+      setTimeout(render, 950);
+    }
+  }
+
+  // ---- beat quiz -> fade dark -> roulette ----
+  function beatQuiz() {
+    blackout.classList.add("on");
+    setTimeout(() => {
+      stopRain();
+      showPanel("roulette");
+      buildWheel();
+      resetRoulette();
+      setTimeout(() => blackout.classList.remove("on"), 90);
+    }, 750);
+  }
+
+  // ---- roulette ("fimply") ----
+  const SEGMENTS = [
+    { label: "WIN",      color: "#38e08a" },     // index 0 = the only win (1/7)
+    { label: "LOSE",     color: "#e05a7a" },
+    { label: "NOPE",     color: "#c74f6b" },
+    { label: "DENIED",   color: "#e05a7a" },
+    { label: "REJECTED", color: "#c74f6b" },
+    { label: "NO",       color: "#e05a7a" },
+    { label: "TRY AGAIN",color: "#c74f6b" },
+  ];
+  const WIN_INDEX = 0;
+  let spinning = false, curRot = 0;
+
+  function polar(cx, cy, r, deg) { const a = deg * Math.PI / 180; return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) }; }
+  function buildWheel() {
+    const n = SEGMENTS.length, seg = 360 / n, R = 99;
+    let svg = '<svg viewBox="0 0 200 200" width="100%" height="100%">';
+    for (let i = 0; i < n; i++) {
+      const a0 = -90 + i * seg - seg / 2, a1 = a0 + seg;
+      const p0 = polar(100, 100, R, a0), p1 = polar(100, 100, R, a1);
+      svg += '<path d="M100,100 L' + p0.x + ',' + p0.y + ' A' + R + ',' + R + ' 0 0 1 ' + p1.x + ',' + p1.y + ' Z" fill="' + SEGMENTS[i].color + '" stroke="#fff" stroke-width="1.4"/>';
+      const mid = a0 + seg / 2, lp = polar(100, 100, R * 0.6, mid);
+      svg += '<text x="' + lp.x + '" y="' + lp.y + '" fill="#241019" font-size="8" font-weight="700" text-anchor="middle" dominant-baseline="middle" transform="rotate(' + (mid + 90) + ' ' + lp.x + ' ' + lp.y + ')">' + SEGMENTS[i].label + '</text>';
+    }
+    svg += '<circle cx="100" cy="100" r="11" fill="#fff" stroke="#d6336c" stroke-width="2.5"/></svg>';
+    wheel.innerHTML = svg;
+  }
+
+  function resetRoulette() {
+    spinning = false; curRot = 0;
+    wheel.style.transition = "none"; wheel.style.transform = "rotate(0deg)";
+    void wheel.offsetWidth; wheel.style.transition = "";
+    rouletteMsg.textContent = ""; rouletteMsg.className = "roulette-msg";
+    spinBtn.disabled = false; spinBtn.textContent = "SPIN";
+  }
+
+  function spin() {
+    if (spinning) return;
+    spinning = true; spinBtn.disabled = true;
+    rouletteMsg.textContent = ""; rouletteMsg.className = "roulette-msg";
+    const n = SEGMENTS.length, seg = 360 / n;
+    const target = Math.floor(Math.random() * n);        // uniform -> 1/7 to hit WIN
+    const desiredMod = (360 - target * seg) % 360;
+    const curMod = ((curRot % 360) + 360) % 360;
+    let delta = desiredMod - curMod; if (delta < 0) delta += 360;
+    curRot += 360 * 5 + delta;                            // 5 spins + align target to top
+    wheel.style.transform = "rotate(" + curRot + "deg)";
+    setTimeout(() => { spinning = false; resolveSpin(target === WIN_INDEX); }, 4400);
+  }
+
+  function resolveSpin(won) {
+    if (won) {
+      const already = beaten.has(levelId);
+      awardGas(levelId);
+      rouletteMsg.textContent = already ? "✅ YOU'RE IN! (already had this gas)" : "✅ YOU'RE IN — Atlas ships! +1 gas";
+      rouletteMsg.className = "roulette-msg win";
+      setTimeout(() => backToMap(stop), 1900);
+    } else {
+      rouletteMsg.textContent = "❌ Denied. Spin again.";
+      rouletteMsg.className = "roulette-msg lose";
+      spinBtn.disabled = false;
+    }
+  }
+  spinBtn.onclick = spin;
+
+  return { start, stop, leave, pressE };
+})();
+
+/* ==========================================================================
+   RUNNER — motorbike "dino runner". Jump OVER ground F1 cars, DUCK UNDER the
+   high ones. Survive 60s (timer on screen) -> gas. Parallax Italian street
+   background scrolls slowly; the road scrolls faster; speed ramps up. 3·2·1
+   before start; crash restarts the run.
+   ========================================================================== */
+const Runner = (() => {
+  const el = document.getElementById("runner");
+  const sky = document.getElementById("runSky");
+  const dashes = document.getElementById("runDashes");
+  const rider = document.getElementById("rider");
+  const timerEl = document.getElementById("runTimer");
+  const progEl = document.getElementById("runProg");
+  const msg = document.getElementById("runMsg");
+  const msgBig = document.getElementById("runMsgBig");
+  const msgSmall = document.getElementById("runMsgSmall");
+
+  const GRAV = 0.9, JUMP_V = -17.5, DASH_PERIOD = 96;
+  let raf = null, running = false, levelId = null;
+  let W = 0, H = 0, groundY = 0, bikeW = 130, bikeH = 108;
+  let bike = { x: 0, y: 0, vy: 0, onGround: true, ducking: false };
+  let obstacles = [], spawnMs = 0, speed = 6, timeLeft = 45, lastFrame = 0;
+  let bgImgs = [], bgX = 0, bgW = 0, dashX = 0;
+  const held = { duck: false };
+
+  function layout() {
+    W = window.innerWidth; H = window.innerHeight;
+    groundY = H * 0.80;
+    bikeW = Math.min(150, W * 0.19); bikeH = bikeW * 0.82;
+  }
+
+  function start(id) {
+    levelId = id; mapActive = false;
+    el.classList.add("on");
+    layout();
+    // parallax background (two copies)
+    sky.innerHTML = ""; bgImgs = [];
+    for (let i = 0; i < 2; i++) { const im = document.createElement("img"); im.src = "assets/background.png"; sky.appendChild(im); bgImgs.push(im); }
+    const sizeBg = () => { bgW = bgImgs[0].getBoundingClientRect().width || (sky.clientHeight * 1.5); bgImgs.forEach((im, i) => { im.style.left = (i * bgW) + "px"; }); };
+    bgImgs[0].complete ? sizeBg() : (bgImgs[0].onload = sizeBg);
+    setTimeout(sizeBg, 60);
+    resetRun();
+    msg.classList.remove("on");
+    countdownThen(() => { running = true; lastFrame = performance.now(); });   // 3·2·1
+    if (!raf) raf = requestAnimationFrame(loop);
+  }
+
+  function resetRun() {
+    obstacles.forEach(o => o.el.remove()); obstacles = [];
+    speed = 6; timeLeft = 45; spawnMs = 700; bgX = 0; dashX = 0;
+    bike.x = W * 0.14; bike.y = groundY - bikeH; bike.vy = 0; bike.onGround = true; bike.ducking = false;
+    rider.src = "assets/bike.png";
+    timerEl.textContent = fmt(timeLeft); progEl.style.width = "0%";
+    positionBike();
+  }
+
+  function jump() { if (bike.onGround && !bike.ducking) { bike.vy = JUMP_V; bike.onGround = false; rider.src = "assets/wheelie.png"; } }
+  function duck(v) { held.duck = v; }
+
+  function positionBike() {
+    rider.style.width = bikeW + "px";
+    if (bike.ducking) { const dh = bikeH * 0.62; rider.style.height = dh + "px"; rider.style.top = (groundY - dh) + "px"; }
+    else { rider.style.height = bikeH + "px"; rider.style.top = bike.y + "px"; }
+    rider.style.left = bike.x + "px";
+  }
+
+  function spawnObstacle() {
+    const high = Math.random() < 0.4;            // 40% overhead barrier (duck), else ground car (jump)
+    const x = W + 30;
+    if (high) {
+      // hanging caution barrier: the VISUAL fills the exact danger zone (from
+      // above the standing rider's head down to just above the ducked rider),
+      // so it's obvious you have to duck — and just as obvious when you clear it.
+      const bw = Math.min(122, W * 0.16);
+      const hBot = groundY - bikeH * 0.62, hTop = groundY - bikeH * 1.18, hh = hBot - hTop;
+      const o = document.createElement("div"); o.className = "run-barrier";
+      o.style.width = bw + "px"; o.style.height = hh + "px"; o.style.top = hTop + "px";
+      o.style.transform = "translateX(" + x + "px)"; el.appendChild(o);
+      obstacles.push({ el: o, x, vw: bw, hw: bw * 0.9, hx0: bw * 0.05, hTop, hBot });
+    } else {
+      // f1 car on the road — jump it. Small centered hitbox under the big sprite.
+      const vw = Math.min(112, W * 0.15), vh = vw * (1000 / 750);
+      const hw = Math.min(46, vw * 0.38), hx0 = (vw - hw) / 2;
+      const hBot = groundY - 4, hh = 66, hTop = hBot - hh, vbot = groundY - 2, vtop = vbot - vh;
+      const o = document.createElement("img"); o.className = "run-obstacle"; o.src = "assets/f1.png";
+      o.style.width = vw + "px"; o.style.height = vh + "px"; o.style.top = vtop + "px";
+      o.style.transform = "translateX(" + x + "px)"; el.appendChild(o);
+      obstacles.push({ el: o, x, vw, hw, hx0, hTop, hBot });
+    }
+  }
+
+  function collide() {
+    const bx = bike.x + bikeW * 0.30, bx2 = bike.x + bikeW * 0.74;   // inset body hitbox
+    let bTop, bBot;
+    if (bike.ducking) { bBot = groundY - bikeH * 0.08; bTop = groundY - bikeH * 0.62 + 6; }
+    else { bTop = bike.y + bikeH * 0.12; bBot = bike.y + bikeH * 0.92; }
+    for (const o of obstacles) {
+      const ox = o.x + o.hx0, ox2 = ox + o.hw;
+      if (bx < ox2 && bx2 > ox && bTop < o.hBot && bBot > o.hTop) return true;
+    }
+    return false;
+  }
+
+  function loop(now) {
+    const dt = Math.min(2.2, (now - lastFrame) / 16.67); lastFrame = now;
+    if (running) {
+      speed += 0.0022 * dt;                       // gradual ramp
+      timeLeft -= dt / 60;
+      if (timeLeft <= 0) { timeLeft = 0; timerEl.textContent = fmt(0); progEl.style.width = "100%"; return win(); }
+      timerEl.textContent = fmt(timeLeft);
+      progEl.style.width = ((45 - timeLeft) / 45 * 100) + "%";
+
+      // scroll background (slow) + road dashes (fast)
+      if (bgW) { bgX = (bgX + speed * 0.12 * dt) % bgW; bgImgs.forEach((im, i) => im.style.left = (i * bgW - bgX) + "px"); }
+      dashX = (dashX + speed * dt) % DASH_PERIOD; dashes.style.transform = "translateX(" + (-dashX) + "px)";
+
+      // physics
+      bike.ducking = held.duck && bike.onGround;
+      if (!bike.onGround) {
+        bike.vy += GRAV * dt; bike.y += bike.vy * dt;
+        if (bike.y >= groundY - bikeH) { bike.y = groundY - bikeH; bike.vy = 0; bike.onGround = true; rider.src = "assets/bike.png"; }
+      }
+      positionBike();
+
+      // spawn + move obstacles
+      spawnMs -= dt * 16.67;
+      if (spawnMs <= 0) { spawnObstacle(); spawnMs = Math.max(620, 1300 - speed * 42) + Math.random() * 320; }
+      obstacles = obstacles.filter(o => {
+        o.x -= speed * dt; o.el.style.transform = "translateX(" + o.x + "px)";
+        if (o.x < -o.vw - 30) { o.el.remove(); return false; }
+        return true;
+      });
+
+      if (collide()) crash();   // NOTE: don't `return` — the loop must keep
+    }                           // ticking so the restart (countdown) resumes it
+    raf = requestAnimationFrame(loop);
+  }
+
+  function fmt(s) { s = Math.ceil(s); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }
+  function showMsg(big, small) { msgBig.textContent = big; msgSmall.textContent = small || ""; msg.classList.add("on"); }
+  function hideMsg() { msg.classList.remove("on"); }
+
+  function crash() {
+    running = false;
+    el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 350);
+    showMsg("CRASH!", "restarting…");
+    setTimeout(() => { hideMsg(); resetRun(); countdownThen(() => { running = true; lastFrame = performance.now(); }); }, 950);
+  }
+
+  function win() {
+    running = false;
+    const already = beaten.has(levelId);
+    awardGas(levelId);
+    showMsg("YOU MADE IT! 🏍️", already ? "(already had this gas)" : "+1 gas can!");
+    setTimeout(() => { hideMsg(); backToMap(stop); }, 2000);
+  }
+
+  function stop() {
+    running = false;
+    if (raf) { cancelAnimationFrame(raf); raf = null; }
+    obstacles.forEach(o => o.el.remove()); obstacles = [];
+    el.classList.remove("on");
+  }
+  function leave() { running = false; backToMap(stop); }
+
+  // touch buttons
+  const jb = document.getElementById("jumpBtn"), db = document.getElementById("duckBtn");
+  jb.addEventListener("pointerdown", e => { e.preventDefault(); jump(); });
+  db.addEventListener("pointerdown", e => { e.preventDefault(); duck(true); });
+  db.addEventListener("pointerup", e => { e.preventDefault(); duck(false); });
+  db.addEventListener("pointerleave", () => duck(false));
+
+  return { start, stop, leave, jump, duck };
+})();
+
+/* ==========================================================================
+   HEIST — fixed-camera open arena (no camera follow). Climb platforms at
+   different heights, step on all 3 SWITCHES to drop the bars sealing Bibi's
+   chamber, then touch sleeping Bibi to STEAL the cash bag (coin/cash burst).
+   He wakes as laser-eyes bibifly and flies around the arena chasing + blasting
+   lasers ("MINE!"). Get to the 🚁 (bottom-left) to escape -> gas.
+   (Requested "JEW" projectiles were replaced with his laser blasts — throwing
+   an ethnic/religious label as a weapon isn't something I'll build.)
+   ========================================================================== */
+const Heist = (() => {
+  const el = document.getElementById("heist");
+  const world = document.getElementById("heistWorld");
+  const hud = document.getElementById("hObj");          // centre objective text
+  const heartsEl = document.getElementById("hHearts");
+  const msg = document.getElementById("heistMsg");
+  const msgBig = document.getElementById("heistMsgBig");
+  const msgSmall = document.getElementById("heistMsgSmall");
+  const siren = new Audio("assets/masterwarning.mp3"); siren.volume = 0.5;
+
+  const SPR = { stand: "assets/sprites/side.png", walk: ["assets/sprites/side_left.png", "assets/sprites/side_right.png"] };
+  // snappier feel: quicker acceleration + stronger friction (less ice)
+  const GRAV = 0.8, MOVE = 5.4, JUMP = -16.5, FRICTION = 0.55, ACCEL = 2.6;
+  const SHOUTS = ["MINE!", "THIEF!", "MY MONEY!", "STOP!", "COME BACK!", "GUARDS!"];
+  const BOSS2_SPD = 3.75, MAX_HP = 3, INVULN_MS = 1200;
+
+  let raf = null, running = false, levelId = null, phase = "puzzle", chamberOpen = false;
+  let stage = 1, camX = 0, W2 = 0;
+  let W = 0, H = 0, lastFrame = 0, stepT = 0, walkFrame = 0;
+  let hp = MAX_HP, invulnUntil = 0;
+  let player = { x: 0, y: 0, vx: 0, vy: 0, onGround: false, facing: 1, w: 40, h: 78, groundPlat: null };
+  const keys = { left: false, right: false };
+  let platforms = [], switches = [], spikes = [], particles = [], projs = [], shouts = [], beams = [], movers = [], collapses = [];
+  let bossEl = null, playerEl = null, exitEl = null, door2El = null;
+  const boss = { x: 0, y: 0, w: 0, h: 0 };
+  let chamber = null, exitPos = null, door2 = null, doorPlat = null;
+  let projTimer = 0, shoutTimer = 0, particleTimer = 0, chaseDelay = 0, bossBeam = null, beamAtkTimer = 0;
+
+  const aabb = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  const box = () => ({ x: player.x, y: player.y, w: player.w, h: player.h });
+  const haz = () => ({ x: player.x + 6, y: player.y + 6, w: player.w - 12, h: player.h - 8 });
+  const clamp = (v, a, b) => Math.max(a, Math.min(v, b));
+
+  function layout() { W = window.innerWidth; H = window.innerHeight; }
+
+  function start(id) {
+    levelId = id; mapActive = false;
+    el.classList.add("on");
+    layout(); stage = 1; buildLevel(); reset();
+    running = true; lastFrame = performance.now();
+    if (!raf) raf = requestAnimationFrame(loop);
+  }
+
+  // ---- HUD helpers ----
+  function updateHearts() {
+    let s = ""; for (let i = 0; i < MAX_HP; i++) s += '<span class="hp' + (i < hp ? "" : " lost") + '">❤️</span>';
+    heartsEl.innerHTML = s;
+  }
+  function screenShake() { el.classList.remove("shake"); void el.offsetWidth; el.classList.add("shake"); }
+  function setAlarm(on) {
+    el.classList.toggle("alarm", on);
+    if (on) { try { siren.currentTime = 0; siren.play().catch(() => {}); } catch (e) {} }
+    else { try { siren.pause(); } catch (e) {} }
+  }
+
+  function addPlat(x, y, w, h, cls, oneway) {
+    const d = document.createElement("div"); d.className = cls || "h-plat";
+    d.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+    world.appendChild(d);
+    const p = { x, y, w, h, el: d, oneway: !!oneway }; platforms.push(p); return p;
+  }
+  function addSwitch(x, y) {
+    const w = Math.round(W * 0.055), h = 14;
+    const d = document.createElement("div"); d.className = "h-switch";
+    d.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+    world.appendChild(d); switches.push({ x, y, w, h, on: false, el: d });
+  }
+  function addSpikeAt(x, gy) {
+    const w = 70, h = 24; const d = document.createElement("div"); d.className = "h-spike";
+    d.style.cssText = `left:${x}px;top:${gy - h}px;width:${w}px;height:${h}px`;
+    world.appendChild(d); spikes.push({ x, y: gy - h, w, h });
+  }
+  function addImg(cls, src) { const i = document.createElement("img"); i.className = cls; i.src = src; i.style.left = "0"; i.style.top = "0"; world.appendChild(i); return i; }
+
+  // ---- security laser beams (blink on/off, or sweep along an axis) ----
+  function addBeam(x, y, len, thick, orient, mode, opts = {}) {
+    const d = document.createElement("div"); d.className = "h-beam" + (orient === "v" ? " v" : ""); world.appendChild(d);
+    const e1 = document.createElement("div"), e2 = document.createElement("div");
+    e1.className = e2.className = "h-emitter"; world.appendChild(e1); world.appendChild(e2);
+    const b = { el: d, e1, e2, x, y, len, thick, orient, mode, on: true, t: Math.random() * 1200,
+      period: opts.period || 1600, duty: opts.duty || 0.6, speed: opts.speed || 0.05,
+      from: opts.from != null ? opts.from : (orient === "h" ? y : x),
+      to: opts.to != null ? opts.to : (orient === "h" ? y : x), phase: Math.random() * 6 };
+    beams.push(b); layoutBeam(b); return b;
+  }
+  function layoutBeam(b) {
+    const w = b.orient === "h" ? b.len : b.thick, h = b.orient === "h" ? b.thick : b.len;
+    b.el.style.cssText = `left:${b.x}px;top:${b.y}px;width:${w}px;height:${h}px`;
+    if (b.orient === "h") { b.e1.style.cssText = `left:${b.x - 6}px;top:${b.y + b.thick / 2 - 6}px`; b.e2.style.cssText = `left:${b.x + b.len - 6}px;top:${b.y + b.thick / 2 - 6}px`; }
+    else { b.e1.style.cssText = `left:${b.x + b.thick / 2 - 6}px;top:${b.y - 6}px`; b.e2.style.cssText = `left:${b.x + b.thick / 2 - 6}px;top:${b.y + b.len - 6}px`; }
+  }
+  function updateBeams(dt) {
+    for (const b of beams) {
+      b.t += dt * 16.67;
+      if (b.mode === "blink") { b.on = (b.t % b.period) < b.period * b.duty; b.el.classList.toggle("off", !b.on); }
+      else { b.phase += b.speed * dt; const mid = (b.from + b.to) / 2, amp = (b.to - b.from) / 2, p = mid + amp * Math.sin(b.phase); if (b.orient === "h") b.y = p; else b.x = p; layoutBeam(b); b.on = true; }
+      if (b.on) { const r = b.orient === "h" ? { x: b.x, y: b.y, w: b.len, h: b.thick } : { x: b.x, y: b.y, w: b.thick, h: b.len }; if (aabb(haz(), r)) hit(); }
+    }
+  }
+
+  // ---- moving platforms & collapsing tiles ----
+  function addMover(x, y, w, from, to, axis, speed, gold) {
+    const p = addPlat(x, y, w, 16, "h-plat mover" + (gold ? " gold" : ""), true);
+    p.mover = true; p.axis = axis; p.from = from; p.to = to; p.speed = speed || 0.03; p.phase = Math.random() * 6; p.dx = 0; p.dy = 0;
+    movers.push(p); return p;
+  }
+  function updateMovers(dt) {
+    for (const p of movers) {
+      p.phase += p.speed * dt; const mid = (p.from + p.to) / 2, amp = (p.to - p.from) / 2, np = mid + amp * Math.sin(p.phase);
+      if (p.axis === "x") { p.dx = np - p.x; p.x = np; } else { p.dy = np - p.y; p.y = np; }
+      p.el.style.left = p.x + "px"; p.el.style.top = p.y + "px";
+    }
+  }
+  function ridePlatform(maxX) {
+    const p = player.groundPlat;
+    if (p && p.mover && player.onGround) { if (p.axis === "x") player.x = clamp(player.x + p.dx, 0, maxX - player.w); player.y = p.y - player.h; }
+  }
+  function addCollapse(x, y, w) {
+    const p = addPlat(x, y, w, 16, "h-plat collapse", true);
+    p.collapse = true; p.active = true; p.triggered = false; collapses.push(p); return p;
+  }
+  function updateCollapses() {
+    for (const p of collapses) {
+      if (!p.triggered && p.active && player.groundPlat === p && player.onGround) {
+        p.triggered = true; p.el.classList.add("warn");
+        setTimeout(() => { if (running) { p.active = false; p.el.classList.remove("warn"); p.el.style.opacity = "0.12"; } }, 480);
+        setTimeout(() => { if (running) { p.active = true; p.triggered = false; p.el.style.opacity = "1"; } }, 2600);
+      }
+    }
+  }
+
+  // ---- damage / hearts ----
+  function hit() {
+    if (!running || performance.now() < invulnUntil) return;
+    hp--; updateHearts(); screenShake();
+    el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 260);
+    if (hp <= 0) { die(); return; }
+    invulnUntil = performance.now() + INVULN_MS;
+    playerEl.classList.add("hurt"); setTimeout(() => playerEl.classList.remove("hurt"), INVULN_MS);
+  }
+
+  // ---- boss charged sweep-beam (arena chase) ----
+  function startBossBeam() {
+    const y = clamp(player.y + player.h * 0.4, 30, H - 80);
+    const d = document.createElement("div"); d.className = "h-laser charge";
+    d.style.cssText = `left:0;top:${y}px;width:${W}px`; world.appendChild(d);
+    bossBeam = { el: d, y, t: 0, phase: "charge" };
+  }
+  function updateBossBeam(dt) {
+    if (!bossBeam) return;
+    bossBeam.t += dt * 16.67;
+    if (bossBeam.phase === "charge") { if (bossBeam.t > 850) { bossBeam.phase = "fire"; bossBeam.t = 0; bossBeam.el.className = "h-laser"; screenShake(); } }
+    else { if (aabb(haz(), { x: 0, y: bossBeam.y - 15, w: W, h: 30 })) hit(); if (bossBeam.t > 340) { bossBeam.el.remove(); bossBeam = null; } }
+  }
+
+  // ---------- STAGE 1: fixed-camera arena + switch puzzle ----------
+  function buildLevel() {
+    world.innerHTML = ""; world.style.transform = ""; platforms = []; switches = []; spikes = []; beams = []; movers = []; collapses = []; camX = 0;
+    const gy = H - 40;
+    addPlat(0, gy, W, 42);
+    // Bibi's chamber sits near the top but with real headroom below the HUD, and
+    // the boss is sized for wide screens. Climb rows fill the space beneath it.
+    boss.w = Math.min(184, W * 0.13); boss.h = boss.w * (1086 / 1448);
+    const topY = Math.round(Math.max(boss.h + 100, H * 0.26));       // chamber platform height
+    const rows = 5, GAPY = Math.max(80, Math.min(132, Math.floor((gy - topY) / rows)));
+    const ry = r => Math.round(gy - r * GAPY);
+    const P = (fx, r, fw) => addPlat(Math.round(W * fx), ry(r), Math.round(W * fw), 18, "h-plat", true);  // one-way
+    P(0.04, 1, 0.20); P(0.40, 1, 0.20); P(0.75, 1, 0.21);
+    P(0.20, 2, 0.20); P(0.56, 2, 0.20);
+    P(0.04, 3, 0.20); P(0.39, 3, 0.20); P(0.73, 3, 0.21);
+    P(0.22, 4, 0.20); P(0.55, 4, 0.20);
+    // the gold vault floor Bibi sleeps on (top)
+    chamber = { x: Math.round(W * 0.52), y: topY, w: Math.round(W * 0.46), h: 18 };
+    addPlat(chamber.x, chamber.y, chamber.w, chamber.h, "h-plat gold", true);
+    doorPlat = addPlat(Math.round(chamber.x - 6), Math.max(4, topY - Math.round(1.7 * GAPY)), 14, Math.round(1.7 * GAPY), "h-cage");
+    addSwitch(Math.round(W * 0.44), ry(1) - 14);
+    addSwitch(Math.round(W * 0.07), ry(3) - 14);
+    addSwitch(Math.round(W * 0.24), ry(4) - 14);
+    // security lasers in the open gaps between rows
+    addBeam(Math.round(W * 0.28), Math.round((ry(1) + ry(2)) / 2), Math.round(W * 0.26), 8, "h", "blink", { period: 1600, duty: 0.5 });
+    addBeam(Math.round(W * 0.44), Math.round((ry(3) + ry(4)) / 2), Math.round(W * 0.26), 8, "h", "blink", { period: 1350, duty: 0.5 });
+    addBeam(Math.round(W * 0.33), ry(3), 8, Math.round(1.9 * GAPY), "v", "sweep", { from: Math.round(W * 0.28), to: Math.round(W * 0.48), speed: 0.04 });
+    // sleeping Bibi, clearly on top of the vault floor
+    boss.x = Math.round(chamber.x + chamber.w * 0.30); boss.y = topY - boss.h;
+    bossEl = addImg("heist-boss sleep", "assets/bibi.png");
+    bossEl.style.width = boss.w + "px"; bossEl.style.left = boss.x + "px"; bossEl.style.top = boss.y + "px";
+    exitEl = document.createElement("div"); exitEl.className = "h-exit"; exitEl.innerHTML = '🚪<div class="lbl">EXIT</div>';
+    exitEl.style.cssText = `left:${Math.round(W * 0.02)}px;top:${gy - 92}px;display:none`;
+    world.appendChild(exitEl);
+    exitPos = { x: Math.round(W * 0.02), y: gy - 92, w: 78, h: 92 };
+    playerEl = addImg("heist-player", SPR.stand);
+  }
+
+  function reset() {
+    stage = 1; phase = "puzzle"; chamberOpen = false; camX = 0; world.style.transform = "";
+    hp = MAX_HP; updateHearts(); invulnUntil = 0;
+    if (bossBeam) { bossBeam.el.remove(); bossBeam = null; } beamAtkTimer = 6000;
+    player.x = Math.round(W * 0.04); player.y = H - 40 - player.h - 4; player.vx = 0; player.vy = 0; player.onGround = false; player.facing = 1; player.groundPlat = null;
+    keys.left = keys.right = false;
+    particles.forEach(p => p.el.remove()); particles = [];
+    projs.forEach(p => p.el.remove()); projs = [];
+    shouts.forEach(s => s.el.remove()); shouts = [];
+    switches.forEach(s => { s.on = false; s.el.classList.remove("on"); });
+    setAlarm(false);
+    bossEl.src = "assets/bibi.png"; bossEl.classList.add("sleep"); bossEl.classList.remove("awake");
+    boss.w = Math.min(184, W * 0.13); boss.h = boss.w * (1086 / 1448);
+    boss.x = Math.round(chamber.x + chamber.w * 0.30); boss.y = chamber.y - boss.h;
+    bossEl.style.width = boss.w + "px"; bossEl.style.left = boss.x + "px"; bossEl.style.top = boss.y + "px"; bossEl.style.transform = "";
+    exitEl.style.display = "none";
+    hud.textContent = "🔓 Hit all 3 switches to crack the vault  (0/3)";
+    msg.classList.remove("on");
+  }
+
+  // ---------- STAGE 2: scrolling parkour escape ----------
+  function buildStage2() {
+    world.innerHTML = ""; platforms = []; switches = []; spikes = []; beams = []; movers = []; collapses = [];
+    stage = 2; phase = "escape"; camX = 0;
+    const gy = H - 40; W2 = Math.round(W * 4.6);
+    const F = fr => Math.round(fr * W2);
+    // ground with FIXED-width gaps (px). Jump reach is ~220px absolute, so gaps
+    // must be an absolute size — not a fraction of the screen-scaled level width,
+    // or they blow up on wide screens and become impossible.
+    const GAPW = 150;
+    const gapX = [0.17, 0.34, 0.52, 0.70, 0.87].map(fr => F(fr));
+    let seg = 0;
+    gapX.forEach(gx => { addPlat(seg, gy, gx - seg, 60); seg = gx + GAPW; });
+    addPlat(seg, gy, W2 - seg, 60);
+    // red laser floor strips (on solid ground, clear of the gaps)
+    [0.09, 0.44, 0.79].forEach(fr => addSpikeAt(F(fr), gy));
+    // gold blocks to vault over
+    [[0.26, 120], [0.62, 120]].forEach(([fr, hh]) => addPlat(F(fr), gy - hh, 60, hh, "h-plat gold"));
+    // blinking vertical laser gates — sprint through when they wink off
+    [[0.23, 1400], [0.41, 1200], [0.60, 1300], [0.83, 1150]].forEach(([fr, per]) => addBeam(F(fr), gy - 300, 10, 300, "v", "blink", { period: per, duty: 0.5 }));
+    door2El = document.createElement("div"); door2El.className = "h-exit"; door2El.innerHTML = '🚪<div class="lbl">ESCAPE</div>';
+    door2El.style.cssText = `left:${W2 - 150}px;top:${gy - 96}px`;
+    world.appendChild(door2El);
+    door2 = { x: W2 - 150, y: gy - 96, w: 80, h: 96 };
+    boss.w = Math.min(240, W * 0.24); boss.h = boss.w * (1086 / 1448);
+    boss.x = -boss.w - 60; boss.y = gy - boss.h - 20;
+    bossEl = addImg("heist-boss awake", "assets/bibifly.png"); bossEl.style.width = boss.w + "px";
+    playerEl = addImg("heist-player", SPR.stand);
+    player.x = 60; player.y = gy - player.h - 4; player.vx = 0; player.vy = 0; player.onGround = false; player.facing = 1; player.groundPlat = null;
+    keys.left = keys.right = false;
+    particles = []; projs = []; shouts = [];
+    hp = MAX_HP; updateHearts(); invulnUntil = 0;
+    setAlarm(true);
+    chaseDelay = 500; projTimer = 1300; particleTimer = 0; shoutTimer = 1500;
+    hud.textContent = "🏃 RUN! Reach the 🚪 before Bibi grabs you";
+    msg.classList.remove("on");
+  }
+
+  function startStage2() {
+    el.classList.add("steal-flash"); setTimeout(() => el.classList.remove("steal-flash"), 500);
+    buildStage2();
+  }
+
+  function jump() { if (player.onGround) { player.vy = JUMP; player.onGround = false; } }
+  function setKey(d, v) { keys[d] = v; }
+
+  function loop(now) {
+    const dt = Math.min(2.2, (now - lastFrame) / 16.67); lastFrame = now;
+    if (running) update(dt);
+    raf = requestAnimationFrame(loop);
+  }
+
+  function physics(dt, maxX) {
+    const acc = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+    if (acc !== 0) { player.vx += acc * ACCEL * dt; player.facing = acc > 0 ? 1 : -1; }
+    else player.vx *= Math.pow(FRICTION, dt);      // only coast-decay when no key is held
+    player.vx = Math.max(-MOVE, Math.min(MOVE, player.vx));
+    const prevBottom = player.y + player.h;                  // feet before the vertical move
+    player.x = clamp(player.x + player.vx * dt, 0, maxX - player.w);
+    // horizontal blocking only for SOLID platforms (one-way ones don't wall you)
+    for (const p of platforms) { if (p.collapse && !p.active) continue; if (!p.oneway && aabb(box(), p)) { player.x = player.vx > 0 ? p.x - player.w : p.x + p.w; player.vx = 0; } }
+    player.vy += GRAV * dt; player.y += player.vy * dt; player.onGround = false; player.groundPlat = null;
+    for (const p of platforms) {
+      if (p.collapse && !p.active) continue;
+      if (!aabb(box(), p)) continue;
+      if (p.oneway) {
+        // land on top only when falling onto it from above (else pass through)
+        if (player.vy > 0 && prevBottom <= p.y + 2) { player.y = p.y - player.h; player.vy = 0; player.onGround = true; player.groundPlat = p; }
+      } else {
+        if (player.vy > 0) { player.y = p.y - player.h; player.vy = 0; player.onGround = true; player.groundPlat = p; }
+        else if (player.vy < 0) { player.y = p.y + p.h; player.vy = 0; }
+      }
+    }
+  }
+
+  function update(dt) {
+    if (stage === 1) {
+      updateMovers(dt);
+      physics(dt, W); ridePlatform(W);
+      if (player.y > H + 160) return die();
+      updateCollapses();
+      updateBeams(dt); if (!running) return;
+      if (!chamberOpen) {
+        let n = 0;
+        switches.forEach(s => { if (!s.on && aabb(haz(), s)) { s.on = true; s.el.classList.add("on"); } if (s.on) n++; });
+        hud.textContent = `🔓 Crack the vault — switches ${n}/3`;
+        if (n >= switches.length) openChamber();
+      }
+      if (chamberOpen && phase !== "escape" && aabb(box(), { x: boss.x, y: boss.y, w: boss.w, h: boss.h })) return steal();
+      if (phase === "escape") { updateBoss(dt); updateBossBeam(dt); if (!running) return; if (aabb(box(), exitPos)) return startStage2(); }
+      updateParticles(dt); updateProjs(dt); updateShouts(dt);
+      if (!running) return;
+      renderPlayer();
+    } else {
+      updateMovers(dt);
+      physics(dt, W2); ridePlatform(W2);
+      if (player.y > H + 160) return die();
+      updateCollapses();
+      updateBeams(dt); if (!running) return;
+      for (const s of spikes) if (aabb(haz(), s)) { hit(); break; }
+      if (!running) return;
+      // Bibi flies in from the left, relentless
+      if (chaseDelay > 0) chaseDelay -= dt * 16.67; else boss.x += BOSS2_SPD * dt;
+      boss.y = approach(boss.y, player.y - boss.h * 0.28, 2.4 * dt);
+      // he's flying RIGHT (chasing), art faces left -> flip to face the player
+      bossEl.style.left = boss.x + "px"; bossEl.style.top = boss.y + "px"; bossEl.style.transform = "scaleX(-1)";
+      particleTimer -= dt * 16.67; if (particleTimer <= 0) { spawnParticle(boss.x + boss.w * 0.55, boss.y + boss.h * 0.55, false); particleTimer = 85; }
+      projTimer -= dt * 16.67; if (projTimer <= 0) { shootLaser(); projTimer = 1400 + Math.random() * 600; }
+      shoutTimer -= dt * 16.67; if (shoutTimer <= 0) { spawnShout(); shoutTimer = 1800 + Math.random() * 1300; }
+      if (aabb(haz(), { x: boss.x + boss.w * 0.35, y: boss.y + boss.h * 0.2, w: boss.w * 0.5, h: boss.h * 0.6 })) hit();
+      if (!running) return;
+      updateParticles(dt); updateProjs(dt); updateShouts(dt);
+      if (!running) return;
+      camX = clamp(player.x - W * 0.34, 0, W2 - W);
+      world.style.transform = `translateX(${-camX}px)`;
+      if (aabb(box(), door2)) return realWin();
+      renderPlayer();
+    }
+  }
+
+  function openChamber() {
+    chamberOpen = true;
+    if (doorPlat) { const i = platforms.indexOf(doorPlat); if (i >= 0) platforms.splice(i, 1); doorPlat.el.remove(); doorPlat = null; }
+    el.classList.add("steal-flash"); setTimeout(() => el.classList.remove("steal-flash"), 500);
+    hud.textContent = "CHAMBER OPEN — grab the money bag!";
+  }
+
+  function steal() {
+    phase = "escape"; chaseDelay = 750;
+    bossEl.src = "assets/bibifly.png"; bossEl.classList.remove("sleep"); bossEl.classList.add("awake");
+    boss.w = Math.min(225, W * 0.23); boss.h = boss.w * (1086 / 1448);
+    bossEl.style.width = boss.w + "px";
+    exitEl.style.display = "flex";
+    setAlarm(true); screenShake();
+    el.classList.add("steal-flash"); setTimeout(() => el.classList.remove("steal-flash"), 500);
+    for (let i = 0; i < 26; i++) spawnParticle(boss.x + boss.w / 2, boss.y + boss.h / 2, true);
+    spawnShoutAt(boss.x + boss.w * 0.3, boss.y, "MY MONEY!!");
+    hud.textContent = "💰 GRABBED THE CASH — reach the 🚪 (bottom-left)!";
+    projTimer = 900; shoutTimer = 1000; particleTimer = 0; beamAtkTimer = 3500;
+  }
+
+  const approach = (c, t, s) => { const d = t - c; return Math.abs(d) <= s ? t : c + Math.sign(d) * s; };
+  function updateBoss(dt) {
+    if (chaseDelay > 0) chaseDelay -= dt * 16.67;
+    else { const st = 1.9 * dt; boss.x = approach(boss.x, player.x - boss.w * 0.25, st); boss.y = approach(boss.y, player.y - boss.h * 0.3, st); }
+    boss.x = Math.max(-boss.w * 0.3, Math.min(boss.x, W - boss.w * 0.7));
+    boss.y = Math.max(-boss.h * 0.2, Math.min(boss.y, H - boss.h * 0.6));
+    bossEl.style.left = boss.x + "px"; bossEl.style.top = boss.y + "px";
+    bossEl.style.transform = (player.x > boss.x ? "scaleX(-1)" : "");
+    particleTimer -= dt * 16.67; if (particleTimer <= 0) { spawnParticle(boss.x + boss.w * 0.4, boss.y + boss.h * 0.55, false); particleTimer = 85; }
+    projTimer -= dt * 16.67; if (projTimer <= 0) { shootLaser(); projTimer = 1200 + Math.random() * 500; }
+    shoutTimer -= dt * 16.67; if (shoutTimer <= 0) { spawnShout(); shoutTimer = 1700 + Math.random() * 1300; }
+    beamAtkTimer -= dt * 16.67; if (beamAtkTimer <= 0 && !bossBeam && chaseDelay <= 0) { startBossBeam(); spawnShoutAt(boss.x, boss.y, "EYE LASER!"); beamAtkTimer = 5200 + Math.random() * 2200; }
+    if (chaseDelay <= 0 && aabb(haz(), { x: boss.x + boss.w * 0.22, y: boss.y + boss.h * 0.15, w: boss.w * 0.56, h: boss.h * 0.7 })) hit();
+  }
+
+  function shootLaser() {
+    const sx = boss.x + boss.w * 0.25, sy = boss.y + boss.h * 0.42;
+    const dx = (player.x + player.w / 2) - sx, dy = (player.y + player.h / 2) - sy, len = Math.hypot(dx, dy) || 1, spd = 7, w = 46;
+    const d = document.createElement("div"); d.className = "h-proj"; d.style.width = w + "px"; world.appendChild(d);
+    projs.push({ el: d, x: sx, y: sy, vx: dx / len * spd, vy: dy / len * spd, w, ang: Math.atan2(dy, dx) * 180 / Math.PI });
+  }
+  function updateProjs(dt) {
+    projs = projs.filter(p => {
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.el.style.transform = `translate(${p.x}px,${p.y}px) rotate(${p.ang}deg)`;
+      if (p.x < camX - 200 || p.x > camX + W + 200 || p.y < -160 || p.y > H + 160) { p.el.remove(); return false; }
+      if (aabb(haz(), { x: p.x, y: p.y, w: p.w, h: 9 })) { p.el.remove(); hit(); return false; }
+      return true;
+    });
+  }
+  function spawnParticle(x, y, burst) {
+    const img = document.createElement("img"); img.className = "h-particle";
+    img.src = Math.random() < 0.5 ? "assets/coin.png" : "assets/cash.png";
+    const s = 18 + Math.random() * 14; img.style.width = s + "px"; world.appendChild(img);
+    particles.push({ el: img, x, y, vx: (Math.random() - 0.5) * (burst ? 9 : 3), vy: (burst ? -6 : 0) - Math.random() * 3, life: 1 });
+  }
+  function updateParticles(dt) {
+    particles = particles.filter(p => {
+      p.vy += 0.26 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= 0.016 * dt;
+      p.el.style.opacity = Math.max(0, p.life); p.el.style.transform = `translate(${p.x}px,${p.y}px)`;
+      if (p.life <= 0) { p.el.remove(); return false; } return true;
+    });
+  }
+  function spawnShoutAt(x, y, text) {
+    const d = document.createElement("div"); d.className = "h-shout";
+    d.textContent = text; d.style.fontSize = (1.1 + Math.random() * 0.6) + "rem";
+    world.appendChild(d);
+    shouts.push({ el: d, x, y, vx: (Math.random() - 0.5) * 2.4, vy: -1.5 - Math.random() * 1.5, life: 1.3 });
+  }
+  function spawnShout() { spawnShoutAt(boss.x + boss.w * 0.4, boss.y + boss.h * 0.18, SHOUTS[Math.floor(Math.random() * SHOUTS.length)]); }
+  function updateShouts(dt) {
+    shouts = shouts.filter(s => {
+      s.x += s.vx * dt; s.y += s.vy * dt; s.life -= 0.012 * dt; s.el.style.opacity = Math.max(0, s.life);
+      s.el.style.transform = `translate(${s.x}px,${s.y}px)`;
+      if (s.life <= 0) { s.el.remove(); return false; } return true;
+    });
+  }
+
+  function renderPlayer() {
+    const sw = 72, sh = 92;
+    let src = SPR.stand;
+    if (player.onGround && Math.abs(player.vx) > 0.5) { if (--stepT <= 0) { walkFrame ^= 1; stepT = 6; } src = SPR.walk[walkFrame]; }
+    if (playerEl.getAttribute("src") !== src) playerEl.setAttribute("src", src);
+    // sprite art has ~16% empty space below the feet; nudge down so feet meet the platform
+    const tx = player.x - (sw - player.w) / 2, ty = player.y - (sh - player.h) + 15;
+    playerEl.style.width = sw + "px"; playerEl.style.height = sh + "px";
+    playerEl.style.transform = `translate(${tx}px,${ty}px)` + (player.facing < 0 ? " scaleX(-1)" : "");
+  }
+
+  function showMsg(b, s) { msgBig.textContent = b; msgSmall.textContent = s || ""; msg.classList.add("on"); }
+  function hideMsg() { msg.classList.remove("on"); }
+  function die() {
+    if (!running) return; running = false;
+    if (bossBeam) { bossBeam.el.remove(); bossBeam = null; }
+    el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 300);
+    showMsg("BUSTED! 🚨", "the guards got you — try again");
+    const s = stage;
+    setTimeout(() => { hideMsg(); if (s === 2) buildStage2(); else { buildLevel(); reset(); } running = true; lastFrame = performance.now(); }, 1100);
+  }
+  function realWin() {
+    running = false; setAlarm(false); moneyRain();
+    const already = beaten.has(levelId); awardGas(levelId);
+    showMsg("CLEAN GETAWAY! 🚁💰", already ? "(already had this gas)" : "+1 gas can!");
+    setTimeout(() => { hideMsg(); backToMap(stop); }, 2400);
+  }
+  function moneyRain() {
+    for (let i = 0; i < 40; i++) {
+      const img = document.createElement("img"); img.className = "h-particle"; img.src = Math.random() < 0.5 ? "assets/coin.png" : "assets/cash.png";
+      const s = 22 + Math.random() * 18; img.style.cssText = `width:${s}px;left:${Math.random() * 100}vw;top:-40px;z-index:8`; document.body.appendChild(img);
+      const dur = 1600 + Math.random() * 1600;
+      img.animate([{ transform: "translateY(0) rotate(0)" }, { transform: `translateY(105vh) rotate(${Math.random() * 720}deg)` }], { duration: dur, easing: "ease-in" });
+      setTimeout(() => img.remove(), dur);
+    }
+  }
+  function stop() {
+    running = false; if (raf) { cancelAnimationFrame(raf); raf = null; }
+    world.innerHTML = ""; world.style.transform = ""; doorPlat = null; bossBeam = null;
+    beams = []; movers = []; collapses = [];
+    setAlarm(false); el.classList.remove("on", "alarm", "shake");
+  }
+  function leave() { running = false; backToMap(stop); }
+
+  const bl = document.getElementById("hLeft"), br = document.getElementById("hRight"), bj = document.getElementById("hJump");
+  bl.addEventListener("pointerdown", e => { e.preventDefault(); keys.left = true; });
+  bl.addEventListener("pointerup", () => keys.left = false); bl.addEventListener("pointerleave", () => keys.left = false);
+  br.addEventListener("pointerdown", e => { e.preventDefault(); keys.right = true; });
+  br.addEventListener("pointerup", () => keys.right = false); br.addEventListener("pointerleave", () => keys.right = false);
+  bj.addEventListener("pointerdown", e => { e.preventDefault(); jump(); });
+
+  return { start, stop, leave, setKey, jump };
+})();
+
+/* ==========================================================================
+   RHYTHM — dubstep note-hit game (FNF-style). Notes fall down 4 lanes; hit the
+   lane key (A/S/W/D or arrows) as the note reaches the line. Beatmap in
+   assets/beatmap.js was generated from dubstep.mp3 via onset detection.
+   Score by accuracy — need 70% to pass; health drains on misses (fail=restart).
+   ========================================================================== */
+const Rhythm = (() => {
+  const el = document.getElementById("rhythm");
+  const field = document.getElementById("rhField");
+  const audio = document.getElementById("rhythmAudio");
+  const scoreEl = document.getElementById("rhScore"), accEl = document.getElementById("rhAcc"), hitsEl = document.getElementById("rhHits");
+  const healthEl = document.getElementById("rhHealth"), comboEl = document.getElementById("rhCombo"), judgeEl = document.getElementById("rhJudge");
+  const msg = document.getElementById("rhMsg"), msgBig = document.getElementById("rhMsgBig"), msgSmall = document.getElementById("rhMsgSmall");
+
+  const LANES = 4, LABEL = ["←", "↓", "↑", "→"], COLORS = ["#ff2ec4", "#00e5ff", "#38e08a", "#ff9a3a"];
+  // notes fall slower at the start and speed up toward the end (harder as it goes)
+  const LEAD_START = 3200, LEAD_END = 1500, SONG_LEN = 60000, MISS_W = 200, NOTE_H = 34, PERFECT_PX = 20;
+  // lead-in: the game clock starts this far NEGATIVE so the first notes spawn
+  // above the screen and fall in — nothing ever pops in already on the hit line.
+  const LEADIN = LEAD_START + 400, VOL = 0.6;
+  const leadAt = t => LEAD_START - (LEAD_START - LEAD_END) * Math.max(0, Math.min(1, t / SONG_LEN));
+
+  let raf = null, running = false, started = false, levelId = null, audioStart = 0, audioStarted = false, fadeIv = null;
+  let laneW = 0, receptorY = 0;
+  let receptors = [], notes = [], active = [], nextIdx = 0;
+  let hits = 0, perfects = 0, misses = 0, judged = 0, total = 0, combo = 0, health = 50, score = 0, songEnd = 0;
+
+  function buildField() {
+    field.innerHTML = ""; receptors = [];
+    laneW = Math.min(108, Math.round(window.innerWidth * 0.2));
+    field.style.width = (laneW * LANES) + "px";
+    receptorY = Math.round(window.innerHeight * 0.80);
+    for (let i = 0; i < LANES; i++) {
+      const lane = document.createElement("div"); lane.className = "rh-lane";
+      lane.style.left = (i * laneW) + "px"; lane.style.width = laneW + "px"; field.appendChild(lane);
+      const r = document.createElement("div"); r.className = "rh-receptor";
+      const rs = Math.round(laneW * 0.7);
+      r.style.width = rs + "px"; r.style.height = rs + "px"; r.style.left = "50%"; r.style.top = (receptorY - rs / 2) + "px";
+      r.style.borderColor = COLORS[i]; r.style.color = COLORS[i]; r.textContent = LABEL[i];
+      lane.appendChild(r); receptors.push(r);
+    }
+  }
+  const laneCX = i => i * laneW + laneW / 2;
+
+  function start(id) {
+    levelId = id; mapActive = false;
+    el.classList.add("on");
+    buildField();
+    try { audio.play().then(() => { audio.pause(); audio.currentTime = 0; }).catch(() => {}); } catch (e) {} // prime for autoplay
+    resetSong();
+    countdownThen(beginPlay);                   // 3·2·1
+    if (!raf) raf = requestAnimationFrame(loop);
+  }
+
+  function resetSong() {
+    active.forEach(a => a.el.remove()); active = [];
+    notes = (window.FG_BEATMAP || []).map(([t, lane]) => ({ t, lane, lead: leadAt(t), done: false }));
+    total = notes.length; nextIdx = 0;
+    hits = perfects = misses = judged = combo = score = 0; health = 50;
+    songEnd = (total ? notes[total - 1].t : 60000) + 1800;
+    started = false; running = true; audioStarted = false;
+    if (fadeIv) { clearInterval(fadeIv); fadeIv = null; }
+    audio.pause(); try { audio.currentTime = 0; } catch (e) {}
+    updateHud(); msg.classList.remove("on");
+  }
+  function beginPlay() {
+    // clock starts at -LEADIN; audio itself starts later (in the loop) once the
+    // clock reaches 0, so the opening notes have room to fall in from the top.
+    started = true; audioStarted = false;
+    audioStart = performance.now() + LEADIN;
+    try { audio.currentTime = 0; } catch (e) {}
+    audio.loop = true;
+  }
+  // fade the dubstep in from silence when it kicks off
+  function startAudioFade() {
+    if (fadeIv) { clearInterval(fadeIv); fadeIv = null; }
+    audio.volume = 0; audio.play().catch(() => {});
+    const step = VOL / 24;
+    fadeIv = setInterval(() => { audio.volume = Math.min(VOL, audio.volume + step); if (audio.volume >= VOL) { clearInterval(fadeIv); fadeIv = null; } }, 40);
+  }
+  const now = () => performance.now() - audioStart;
+
+  function loop() {
+    if (running && started) {
+      const t = now();
+      if (!audioStarted && t >= 0) { audioStarted = true; startAudioFade(); }   // song begins after the lead-in
+      while (nextIdx < notes.length && notes[nextIdx].t - t <= notes[nextIdx].lead) { spawnNote(notes[nextIdx]); nextIdx++; }
+      for (let i = active.length - 1; i >= 0; i--) {
+        const n = active[i];
+        const frac = (t - (n.t - n.lead)) / n.lead;
+        const y = -NOTE_H + (receptorY + NOTE_H) * frac;
+        n.el.style.transform = "translate(" + (laneCX(n.lane) - n.w / 2) + "px," + y + "px)";
+        // count the miss when it passes the line, but let the tile keep falling
+        // and only remove it once it's fully off the bottom of the screen.
+        if (!n.done && t > n.t + MISS_W) { n.done = true; n.el.classList.add("missed"); registerMiss(); }
+        if (y > window.innerHeight + 20) { n.el.remove(); active.splice(i, 1); }
+      }
+      if (health <= 0) fail();              // NOTE: don't `return` — the loop must
+      else if (t >= songEnd) finish();      // keep ticking so the restart spawns notes
+    }
+    raf = requestAnimationFrame(loop);
+  }
+
+  function spawnNote(n) {
+    const d = document.createElement("div"); d.className = "rh-note";
+    const w = Math.round(laneW * 0.72); n.w = w;
+    d.style.width = w + "px"; d.style.height = NOTE_H + "px"; d.style.left = "0"; d.style.top = "0";
+    d.style.background = COLORS[n.lane]; d.style.color = COLORS[n.lane]; d.textContent = LABEL[n.lane];
+    field.appendChild(d); n.el = d; n.done = false; active.push(n);
+  }
+
+  function press(lane) {
+    if (!running || !started) return;
+    receptors[lane].classList.add("hit");
+    // VISUAL overlap: if the note box touches the receptor box at all, it counts
+    const rr = receptors[lane].getBoundingClientRect(), rc = (rr.top + rr.bottom) / 2;
+    let best = null, bestOv = 0, bestDist = 0;
+    for (const n of active) {
+      if (n.lane !== lane || n.done) continue;
+      const nr = n.el.getBoundingClientRect();
+      const ov = Math.min(nr.bottom, rr.bottom) - Math.max(nr.top, rr.top);   // vertical overlap px
+      if (ov > 0 && ov > bestOv) { bestOv = ov; best = n; bestDist = Math.abs((nr.top + nr.bottom) / 2 - rc); }
+    }
+    if (best) { best.done = true; best.el.remove(); const i = active.indexOf(best); if (i >= 0) active.splice(i, 1); registerHit(bestDist); }
+  }
+  function release(lane) { if (receptors[lane]) receptors[lane].classList.remove("hit"); }
+
+  function registerHit(dist) {
+    judged++; hits++; combo++;
+    if (dist <= PERFECT_PX) { perfects++; score += 100; health = Math.min(100, health + 2.5); showJudge("PERFECT", "#38e08a"); }
+    else { score += 60; health = Math.min(100, health + 1.5); showJudge("GOOD", "#ffd23e"); }
+    showCombo(); updateHud();
+  }
+  function registerMiss() { judged++; misses++; combo = 0; health -= 7; showJudge("MISS", "#ff2e6e"); updateHud(); }
+
+  function showJudge(txt, c) { judgeEl.textContent = txt; judgeEl.style.color = c; judgeEl.classList.remove("show"); void judgeEl.offsetWidth; judgeEl.classList.add("show"); }
+  function showCombo() { if (combo >= 3) { comboEl.textContent = combo + " COMBO"; comboEl.classList.remove("show"); void comboEl.offsetWidth; comboEl.classList.add("show"); } }
+  function updateHud() {
+    scoreEl.textContent = score;
+    accEl.textContent = (judged ? Math.round(hits / judged * 100) : 100) + "%";
+    hitsEl.textContent = hits + "/" + total;
+    healthEl.style.width = Math.max(0, Math.min(100, health)) + "%";
+  }
+
+  function showMsg(b, s) { msgBig.textContent = b; msgSmall.textContent = s || ""; msg.classList.add("on"); }
+  function hideMsg() { msg.classList.remove("on"); }
+  function fail() {
+    running = false; audio.pause();
+    el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 250);
+    showMsg("FAILED", "too many misses — restarting");
+    setTimeout(() => { hideMsg(); resetSong(); countdownThen(beginPlay); }, 1500);
+  }
+  function finish() {
+    running = false; audio.pause();
+    const acc = total ? Math.round(hits / total * 100) : 0;
+    if (acc >= 65) {
+      const already = beaten.has(levelId); awardGas(levelId);
+      showMsg("CLEARED! " + acc + "%", already ? "(already had this gas)" : "+1 gas can!");
+      setTimeout(() => { hideMsg(); backToMap(stop); }, 2300);
+    } else {
+      showMsg("SO CLOSE — " + acc + "%", "need 65% — try again");
+      setTimeout(() => { hideMsg(); resetSong(); countdownThen(beginPlay); }, 1900);
+    }
+  }
+  function stop() {
+    running = false; if (raf) { cancelAnimationFrame(raf); raf = null; }
+    audio.pause(); try { audio.currentTime = 0; } catch (e) {}
+    active.forEach(a => a.el.remove()); active = []; field.innerHTML = ""; el.classList.remove("on");
+  }
+  function leave() { running = false; audio.pause(); backToMap(stop); }
+
+  document.querySelectorAll("#rhythm .rh-touch button").forEach(b => {
+    const lane = +b.dataset.lane;
+    b.addEventListener("pointerdown", e => { e.preventDefault(); press(lane); });
+    b.addEventListener("pointerup", () => release(lane));
+    b.addEventListener("pointerleave", () => release(lane));
+  });
+
+  return { start, stop, leave, press, release };
+})();
+</script>
+</body>
+</html>

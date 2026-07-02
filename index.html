@@ -1,0 +1,1499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<!-- Desktop-only: flag touch/mobile devices ASAP so the "open on a computer" gate shows -->
+<script>
+(function () {
+  try {
+    var ua = navigator.userAgent || "";
+    var mobUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Silk|Kindle/i.test(ua);
+    var coarse = window.matchMedia && window.matchMedia("(pointer: coarse) and (hover: none)").matches;
+    if (mobUA || coarse) document.documentElement.classList.add("is-mobile");
+  } catch (e) {}
+})();
+</script>
+<!-- Prevent the preview/browser from serving a stale cached copy -->
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<title>Francesco's Gate</title>
+<script>
+  // DEV SHORTCUT: while previewing locally, skip straight to the game so you
+  // don't have to solve all 3 gates every time. Open index.html?full to play
+  // the real intro. On the deployed site (not localhost) the intro always runs.
+  (function () {
+    const local = ["localhost", "127.0.0.1"].includes(location.hostname);
+    const wantFull = new URLSearchParams(location.search).has("full");
+    if (local && !wantFull) location.replace("game.html");
+  })();
+</script>
+<!--
+  ============================================================================
+  FRANCESCO'S GATE — a "There Is No Game" style meta puzzle gift site
+  ============================================================================
+  Structure of this file:
+    - <style>  : all CSS (theme, glitch effects, per-gate styles)
+    - <body>   : audio + mute, boot screen, Gate 1, Gate 2, Gate 3, Cutscene
+    - <script> : engine (gate switching), Gate 1 logic, Gate 2 logic,
+                 Gate 3 logic, cutscene, glitch effects, dev shortcut
+
+  Each gate is wrapped in <section class="gate" id="gateN"> and its JS lives in
+  a clearly-labelled block below. Edit gates independently.
+
+  DEV: press Ctrl+Shift+S to jump to any gate (options logged to console).
+  ============================================================================
+-->
+<style>
+  /* ========================================================================
+     THEME / GLOBAL
+     ======================================================================== */
+  :root {
+    --bg: #08080c;
+    --bg-2: #0d0d16;
+    --fg: #d8d8e0;
+    --grey: #6a6a78;          /* Italian translation colour */
+    --accent: #00e5ff;        /* glitchy cyan */
+    --accent-2: #ff2e88;      /* glitchy magenta */
+    --sweden-blue: #006aa7;
+    --sweden-yellow: #fecc00;
+    --danger: #ff3b5c;
+    --ok: #38e08a;
+    --tile: #14141f;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "Courier New", ui-monospace, Menlo, Consolas, monospace;
+    min-height: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    background:
+      radial-gradient(circle at 50% -10%, rgba(0,229,255,0.06), transparent 60%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.015) 0 1px, transparent 1px 3px),
+      var(--bg);
+  }
+
+  /* Screen-shake wrapper applied to <body> occasionally */
+  body.shake { animation: shake 0.4s linear; }
+  @keyframes shake {
+    0%,100% { transform: translate(0,0); }
+    20% { transform: translate(-3px, 2px); }
+    40% { transform: translate(3px, -2px); }
+    60% { transform: translate(-2px, -3px); }
+    80% { transform: translate(2px, 3px); }
+  }
+
+  /* Italian translation line — grey, smaller, sits under every text block */
+  .it {
+    display: block;
+    color: var(--grey);
+    font-size: 0.72em;
+    font-style: italic;
+    margin-top: 2px;
+    letter-spacing: 0.02em;
+  }
+
+  /* Glitchy title text with flickering shadow */
+  .glitch {
+    position: relative;
+    text-shadow:
+      0 0 1px var(--accent),
+      2px 0 var(--accent-2),
+      -2px 0 var(--accent);
+    animation: flicker 3.5s infinite steps(60);
+  }
+  @keyframes flicker {
+    0%, 92%, 100% { opacity: 1; text-shadow: 0 0 1px var(--accent), 2px 0 var(--accent-2), -2px 0 var(--accent); }
+    93% { opacity: 0.7; text-shadow: 3px 0 var(--accent-2), -3px 0 var(--accent); }
+    94% { opacity: 1; text-shadow: -2px 0 var(--accent-2), 2px 0 var(--accent); }
+    95% { opacity: 0.4; }
+    96% { opacity: 1; text-shadow: 0 0 6px var(--accent); }
+  }
+
+  /* Layout */
+  .stage {
+    min-height: 100vh;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 18px 60px;
+  }
+  .gate { display: none; width: 100%; max-width: 620px; }
+  .gate.active { display: block; animation: fadein 0.6s ease; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  h1, h2 { font-weight: 700; line-height: 1.2; margin: 0 0 6px; }
+  h1 { font-size: clamp(1.6rem, 6vw, 2.4rem); }
+  h2 { font-size: clamp(1.2rem, 4.5vw, 1.6rem); }
+  p { line-height: 1.4; }
+
+  .subtle { color: var(--grey); font-size: 0.85rem; }
+  .center { text-align: center; }
+
+  /* Buttons */
+  button {
+    font-family: inherit;
+    cursor: pointer;
+    background: linear-gradient(180deg, var(--bg-2), #060609);
+    color: var(--fg);
+    border: 1px solid rgba(0,229,255,0.4);
+    border-radius: 8px;
+    padding: 12px 20px;
+    font-size: 1rem;
+    transition: transform 0.1s ease, box-shadow 0.2s ease, border-color 0.2s;
+  }
+  button:hover { border-color: var(--accent); box-shadow: 0 0 14px rgba(0,229,255,0.3); }
+  button:active { transform: scale(0.97); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary { border-color: var(--accent); box-shadow: 0 0 18px rgba(0,229,255,0.25); }
+
+  /* Corner mute button */
+  #muteBtn {
+    position: fixed;
+    top: 12px;
+    right: 12px;
+    z-index: 999;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    font-size: 1.2rem;
+    border-radius: 50%;
+    opacity: 0.75;
+  }
+  #muteBtn:hover { opacity: 1; }
+
+  /* Little corner "system" tag for broken vibe */
+  .sys-tag {
+    position: fixed;
+    bottom: 8px;
+    left: 10px;
+    font-size: 0.62rem;
+    color: #33333f;
+    letter-spacing: 0.1em;
+    z-index: 5;
+    pointer-events: none;
+  }
+
+  /* ========================================================================
+     BOOT SCREEN (fake broken loader)
+     ======================================================================== */
+  #boot { text-align: center; }
+  #bootLog {
+    text-align: left;
+    font-size: 0.8rem;
+    color: #4d7d7d;
+    background: #050508;
+    border: 1px solid #16161f;
+    border-radius: 6px;
+    padding: 12px;
+    height: 150px;
+    overflow: hidden;
+    margin: 18px 0;
+    white-space: pre-wrap;
+  }
+  #bootLog .err { color: var(--danger); }
+  #bootLog .warn { color: var(--sweden-yellow); }
+
+  /* Reconnect button gag: click 1 = glitchy/broken tilt, click 2 = falls & thuds */
+  #bootBtn.cracked {
+    color: var(--danger); border-color: var(--danger);
+    text-shadow: 1.5px 0 #0ff, -1.5px 0 #f0f;
+    animation: bootJitter 0.13s steps(2) infinite;
+  }
+  @keyframes bootJitter {
+    0%   { transform: rotate(-6deg) translate(0,0); }
+    50%  { transform: rotate(-10deg) translate(-2px,1px); }
+    100% { transform: rotate(-4deg) translate(2px,-1px); }
+  }
+  #bootBtn.landed { animation: bootSquash 0.42s ease; }
+  @keyframes bootSquash {
+    0%   { transform: scaleY(1) scaleX(1); }
+    22%  { transform: scaleY(0.62) scaleX(1.22); }
+    55%  { transform: scaleY(1.08) scaleX(0.95); }
+    78%  { transform: scaleY(0.95) scaleX(1.03); }
+    100% { transform: scaleY(1) scaleX(1); }
+  }
+
+  /* ========================================================================
+     GATE 1 — SECURITY / FACE MATCH
+     ======================================================================== */
+  .cam-frame {
+    position: relative;
+    width: 100%;
+    max-width: 340px;
+    aspect-ratio: 4 / 3;
+    margin: 18px auto;
+    border: 2px solid var(--accent);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #000;
+    box-shadow: 0 0 24px rgba(0,229,255,0.2), inset 0 0 40px rgba(0,0,0,0.6);
+  }
+  .cam-frame video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  /* scanning line overlay */
+  .scanline {
+    position: absolute; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    box-shadow: 0 0 10px var(--accent);
+    animation: scan 2.4s linear infinite;
+    z-index: 3;
+  }
+  @keyframes scan { 0% { top: 0; } 100% { top: 100%; } }
+  /* target reticle corners */
+  .reticle { position: absolute; inset: 12px; z-index: 2; pointer-events: none; }
+  .reticle::before, .reticle::after {
+    content: ""; position: absolute; width: 26px; height: 26px;
+    border: 2px solid var(--accent-2);
+  }
+  .reticle::before { top: 0; left: 0; border-right: 0; border-bottom: 0; }
+  .reticle::after  { bottom: 0; right: 0; border-left: 0; border-top: 0; }
+
+  .cam-status {
+    text-align: center; font-size: 0.9rem; min-height: 2.4em;
+    color: var(--accent); letter-spacing: 0.05em;
+  }
+  .cam-status.denied { color: var(--danger); }
+  .cam-status.ok { color: var(--ok); }
+
+  /* success flash */
+  .flash-ok { animation: flashok 0.9s ease; }
+  @keyframes flashok {
+    0% { box-shadow: 0 0 0 rgba(56,224,138,0); }
+    30% { box-shadow: 0 0 40px rgba(56,224,138,0.9); border-color: var(--ok); }
+    100% { box-shadow: 0 0 0 rgba(56,224,138,0); }
+  }
+
+  /* ========================================================================
+     GATE 2 — SWEDISH TEST
+     ======================================================================== */
+  .quiz-progress { font-size: 0.8rem; color: var(--grey); text-align: center; margin-bottom: 8px; }
+  .phrase-box {
+    background: var(--bg-2); border: 1px solid #1c1c28; border-radius: 10px;
+    padding: 18px; margin-bottom: 16px; text-align: center;
+  }
+  .phrase-sv { font-size: 1.4rem; color: var(--sweden-yellow); }
+  .options { display: grid; gap: 10px; }
+  .options button { text-align: left; }
+  .options button.wrong { border-color: var(--danger); animation: shake 0.4s; }
+  .options button.right { border-color: var(--ok); box-shadow: 0 0 14px rgba(56,224,138,0.4); }
+  .insult { color: var(--danger); text-align: center; min-height: 1.6em; margin: 6px 0; font-style: italic; }
+
+  /* --- Passport + certificate reveal --- */
+  #docReveal { display: none; text-align: center; }
+  #docReveal.show { display: block; animation: fadein 0.8s ease; }
+  .doc-wrap { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; margin: 18px 0; }
+
+  /* ---- FAKE SWEDISH PASSPORT ---- */
+  .passport {
+    width: 274px; border-radius: 12px;
+    /* layered guilloché + light sheen over Sweden-blue */
+    background:
+      repeating-linear-gradient(115deg, rgba(255,255,255,0.045) 0 2px, transparent 2px 7px),
+      radial-gradient(circle at 22% 12%, rgba(255,255,255,0.12), transparent 45%),
+      linear-gradient(160deg, #0c4f79, #06375a 58%, #04263f);
+    color: var(--sweden-yellow);
+    border: 1px solid #0a2a3d;
+    box-shadow: 0 14px 34px rgba(0,0,0,0.6), inset 0 0 34px rgba(0,0,0,0.35);
+    animation: dropin 0.9s cubic-bezier(.2,.8,.2,1);
+    position: relative; overflow: hidden; text-align: left;
+    display: flex; flex-direction: column;
+  }
+  @keyframes dropin { from { transform: translateY(-40px) rotate(-4deg); opacity: 0; } to { transform: none; opacity: 1; } }
+  .pp-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 6px; }
+  .pp-crown { font-size: 1.5rem; line-height: 1; }
+  .pp-country { font-size: 0.74rem; letter-spacing: 0.14em; font-weight: 700; }
+  .pp-type { font-size: 0.52rem; letter-spacing: 0.12em; opacity: 0.85; }
+  .pp-body { display: flex; gap: 12px; padding: 4px 16px 12px; }
+  .photo-slot {
+    position: relative; overflow: hidden; flex: 0 0 auto;
+    width: 74px; height: 94px;
+    background: repeating-linear-gradient(45deg, #123, #123 6px, #1a3a52 6px, #1a3a52 12px);
+    border: 2px solid var(--sweden-yellow); border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.5rem; color: var(--sweden-yellow); text-align: center;
+  }
+  .photo-img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; object-position: center 30%; /* frame the face */
+  }
+  .pp-fields { flex: 1 1 auto; min-width: 0; }
+  .pp-field { margin-bottom: 6px; }
+  .pp-field label { display: block; font-size: 0.5rem; letter-spacing: 0.05em; opacity: 0.7; text-transform: uppercase; }
+  .pp-field b { display: block; font-size: 0.8rem; letter-spacing: 0.04em; color: #fff; }
+  .pp-field.hi b { color: var(--sweden-yellow); font-size: 0.9rem; }
+  .pp-cols { display: flex; gap: 10px; }
+  .pp-cols .pp-field { flex: 1; }
+  .pp-cols .pp-field b { font-size: 0.72rem; white-space: nowrap; } /* keep dates on one line */
+  .pp-mrz {
+    margin-top: auto;
+    background: rgba(242,246,250,0.94); color: #0a2a3d;
+    font-family: "Courier New", monospace; font-weight: 700;
+    font-size: 0.5rem; letter-spacing: 0.08em; line-height: 1.55;
+    padding: 6px 12px; white-space: nowrap; overflow: hidden;
+  }
+
+  /* ---- FAKE CITIZENSHIP CERTIFICATE ---- */
+  .certificate {
+    width: 306px; min-height: 384px; border-radius: 6px;
+    background:
+      repeating-linear-gradient(45deg, rgba(0,106,167,0.035) 0 6px, transparent 6px 12px),
+      #fdfdf6;
+    color: #14324a;
+    border: 2px solid var(--sweden-blue);
+    outline: 5px solid #fdfdf6; outline-offset: -11px;
+    box-shadow: 0 0 0 1px var(--sweden-blue) inset, 0 14px 34px rgba(0,0,0,0.6);
+    padding: 20px 20px 16px; text-align: center;
+    animation: dropin 1.1s cubic-bezier(.2,.8,.2,1);
+    display: flex; flex-direction: column;
+  }
+  .certificate .cert-crown { font-size: 1.5rem; color: var(--sweden-yellow); text-shadow: 0 1px 0 #c99700; }
+  .certificate .cert-auth { font-size: 0.56rem; letter-spacing: 0.14em; color: var(--sweden-blue); font-weight: 700; }
+  .certificate h3 { margin: 8px 0 2px; color: var(--sweden-blue); letter-spacing: 0.06em; font-size: 1.02rem; }
+  .certificate .cert-sub { font-size: 0.54rem; letter-spacing: 0.1em; color: #5a7288; text-transform: uppercase; }
+  .certificate .cert-body { font-size: 0.72rem; color: #2a4a63; margin: 12px 2px; line-height: 1.55; }
+  .certificate .cert-name {
+    font-size: 1.7rem; font-family: "Snell Roundhand", "Brush Script MT", cursive; color: #0a3d62;
+    border-bottom: 1px solid #99a; display: inline-block; padding: 0 24px 2px; margin: 6px 0;
+  }
+  .certificate .cert-meta { display: flex; justify-content: space-between; font-size: 0.5rem; color: #6a7f92; margin: 12px 4px 0; }
+  .certificate .cert-sign { display: flex; justify-content: space-between; align-items: flex-end; margin: 16px 4px 0; }
+  .certificate .sig { width: 40%; }
+  .certificate .sig .name { font-family: "Snell Roundhand", "Brush Script MT", cursive; font-size: 0.95rem; color: #0a3d62; }
+  .certificate .sig .line { border-top: 1px solid #567; padding-top: 3px; font-size: 0.48rem; color: #6a7f92; }
+  .certificate .seal {
+    width: 58px; height: 58px; border-radius: 50%;
+    background: radial-gradient(circle at 50% 40%, var(--sweden-yellow), #d4a800);
+    border: 3px double var(--sweden-blue); display: flex; align-items: center;
+    justify-content: center; font-size: 0.4rem; color: var(--sweden-blue);
+    transform: rotate(-12deg); font-weight: bold; text-align: center;
+  }
+
+  /* ========================================================================
+     GATE 3 — CODEWORD PUZZLE (free-drag whole alphabet; win when the hidden
+     code word appears with its letters lined up side by side, in order)
+     ======================================================================== */
+  /* the open playfield the whole alphabet is scattered across */
+  .playfield {
+    position: relative; width: 100%; max-width: 600px;
+    height: clamp(360px, 60vh, 560px);
+    margin: 14px auto 16px;
+    border: 1px dashed #1c1c28; border-radius: 12px;
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.012) 0 1px, transparent 1px 26px),
+      rgba(255,255,255,0.012);
+    overflow: hidden; touch-action: none;
+  }
+  @keyframes tileGlow {
+    from { box-shadow: 0 0 8px rgba(56,224,138,0.4); }
+    to   { box-shadow: 0 0 22px rgba(0,229,255,0.7); }
+  }
+  /* a draggable letter tile — free-floating anywhere in the playfield */
+  .drag-tile {
+    position: absolute;
+    width: 44px; height: 54px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem; font-weight: 700;
+    background: var(--tile); color: var(--fg);
+    border: 1px solid #2a2a3a; border-radius: 8px;
+    cursor: grab; user-select: none; touch-action: none;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+    transition: box-shadow 0.15s, border-color 0.15s;
+  }
+  .drag-tile:hover { border-color: var(--accent); }
+  .drag-tile.dragging { cursor: grabbing; z-index: 200; box-shadow: 0 0 18px rgba(0,229,255,0.5); }
+  /* tiles that form the completed code word light up */
+  .drag-tile.win {
+    border-color: var(--ok); color: #eafff3;
+    animation: tileGlow 1.2s ease infinite alternate;
+  }
+  @media (max-width: 420px) {
+    .drag-tile { width: 36px; height: 46px; font-size: 1.2rem; }
+  }
+
+  #enterBtn { display: none; margin: 10px auto 0; }
+  #enterBtn.show { display: inline-block; animation: fadein 0.6s ease; }
+
+  /* ========================================================================
+     TRANSITION CUTSCENE
+     ======================================================================== */
+  /* Visual-novel plane cutscene */
+  #cutscene {
+    position: fixed; inset: 0; z-index: 1000; display: none; overflow: hidden;
+    background: #000; cursor: pointer;
+  }
+  #cutscene.show { display: block; }
+  /* plane-cabin background (its own layer so it can mirror without flipping chars) */
+  .cs-stage { position: absolute; inset: 0; }
+  .cs-bg { position: absolute; inset: 0; z-index: 0; background: url("assets/ally.jpg") center/cover no-repeat; }
+  .cs-bg.flip { transform: scaleX(-1); }   /* mirrored when the pilot is talking */
+  .cs-stage::after { content: ""; position: absolute; inset: 0; z-index: 1; background: radial-gradient(circle at 50% 40%, transparent 40%, rgba(0,0,0,0.55)); }
+  /* blurry over-the-shoulder BACK of the pilot (passenger view only) */
+  .cs-shoulder {
+    position: absolute; left: -12%; bottom: -4%; width: 52%; height: 116%; z-index: 6; display: none;
+    background: url("assets/backpilot.png") center 32% / cover no-repeat;
+    filter: blur(6px) brightness(0.5);
+  }
+  /* the talking character */
+  .cs-char {
+    position: absolute; left: 50%; bottom: 0; height: 82%;
+    transform: translateX(-50%); z-index: 5;
+    --mx: 50%; --my: 31%; --mw: 1.7vh; --mh: 1.1vh;
+  }
+  .cs-char img { height: 100%; width: auto; display: block; filter: drop-shadow(0 6px 20px rgba(0,0,0,0.5)); }
+  .cs-char.bob { animation: csBob 0.46s ease-in-out infinite; }
+  @keyframes csBob { 0%,100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(-9px); } }
+  /* black mouth oval that opens/closes while talking */
+  .cs-mouth {
+    position: absolute; left: var(--mx); top: var(--my);
+    width: var(--mw); height: var(--mh); background: #1c0a0a; border-radius: 50%;
+    transform: translate(-50%,-50%) scaleY(0.25); opacity: 0;
+  }
+  .cs-mouth.talk { opacity: 0.85; animation: csMouth 0.26s ease-in-out infinite; }
+  @keyframes csMouth { 0%,100% { transform: translate(-50%,-50%) scaleY(0.2); } 50% { transform: translate(-50%,-50%) scaleY(1); } }
+  /* dialogue box */
+  .cs-dialogue {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+    padding: 22px 24px 30px;
+    background: linear-gradient(180deg, transparent, rgba(0,0,0,0.82) 42%);
+    text-align: left;
+  }
+  .cs-speaker { color: var(--accent); font-weight: 700; letter-spacing: 0.1em; font-size: 0.9rem; margin-bottom: 6px; text-shadow: 0 0 8px rgba(0,229,255,0.4); }
+  .cs-text { color: #fff; font-size: clamp(1.1rem, 3.6vw, 1.5rem); min-height: 1.5em; line-height: 1.35; max-width: 760px; }
+  .cs-it { color: var(--grey); font-style: italic; font-size: 0.8rem; margin-top: 6px; min-height: 1em; max-width: 760px; }
+  .cs-prompt { color: #fff; opacity: 0; font-size: 0.8rem; margin-top: 10px; animation: readyBlink 1s ease-in-out infinite; }
+  @keyframes readyBlink { 0%,100%{opacity:.4;} 50%{opacity:1;} }
+  /* full-screen black used for the fades between beats */
+  .cs-black { position: absolute; inset: 0; z-index: 20; background: #000; opacity: 1; transition: opacity 0.8s ease; pointer-events: none; }
+  .cs-black.clear { opacity: 0; }
+  /* fatvideo overlay (on top of everything) */
+  #csVideo { position: absolute; inset: 0; z-index: 25; background: #000; display: none; align-items: center; justify-content: center; }
+  #csVideo.on { display: flex; }
+  #csVideoEl { height: 100vh; width: auto; max-width: 100vw; clip-path: inset(7.5% 0 0 0); transform: translateY(-3.6vh); }
+  .cs-video-skip { position: absolute; bottom: 14px; right: 16px; color: rgba(255,255,255,0.55); font-size: 0.8rem; }
+
+  /* utility to fade a gate out before switching */
+  .fading { animation: fadeout 0.4s ease forwards; }
+  @keyframes fadeout { to { opacity: 0; transform: translateY(-8px); } }
+
+  /* ---- desktop-only gate (shown on touch/mobile devices) ---- */
+  #mobileBlock {
+    position: fixed; inset: 0; z-index: 99999; display: none;
+    flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 30px; gap: 12px; overflow: hidden;
+    background: #04040a; color: #e6f2ff; font-family: ui-monospace, "Courier New", monospace;
+  }
+  html.is-mobile #mobileBlock { display: flex; }
+  html.is-mobile, html.is-mobile body { overflow: hidden; height: 100%; }
+  #mobileBlock::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: repeating-linear-gradient(0deg, rgba(255,255,255,0.045) 0 1px, transparent 1px 3px);
+    animation: mbFlick 4s infinite steps(30);
+  }
+  @keyframes mbFlick { 0%,96%,100%{ opacity:.5; } 97%{ opacity:.12; } 98%{ opacity:.75; } }
+  .mb-glitch {
+    position: relative; font-size: clamp(2rem, 13vw, 3.6rem); font-weight: 800;
+    letter-spacing: 0.12em; color: #fff; text-transform: uppercase;
+  }
+  .mb-glitch::before, .mb-glitch::after { content: attr(data-text); position: absolute; left: 0; top: 0; width: 100%; }
+  .mb-glitch::before { color: #ff2e6e; clip-path: inset(0 0 55% 0); animation: mbGl1 2.2s infinite steps(12); }
+  .mb-glitch::after  { color: #00e5ff; clip-path: inset(55% 0 0 0); animation: mbGl2 1.8s infinite steps(14); }
+  @keyframes mbGl1 { 0%,100%{transform:translate(0,0);} 20%{transform:translate(-3px,1px);} 40%{transform:translate(3px,-1px);} 60%{transform:translate(-2px,0);} }
+  @keyframes mbGl2 { 0%,100%{transform:translate(0,0);} 25%{transform:translate(3px,-1px);} 50%{transform:translate(-3px,1px);} 75%{transform:translate(2px,0);} }
+  .mb-text { font-size: clamp(0.95rem, 4.5vw, 1.2rem); color: #b9c9dd; margin: 0; }
+  .mb-text.big { color: #7dffa8; font-weight: 800; font-size: clamp(1.3rem, 6.5vw, 1.7rem); text-shadow: 0 0 14px rgba(56,224,138,0.5); }
+  .mb-it { font-size: 0.78rem; color: #5c6784; font-style: italic; margin: 4px 0 0; }
+  .mb-dots { margin-top: 20px; color: #4d7d7d; font-size: 0.78rem; letter-spacing: 0.05em; }
+  .mb-cursor { animation: mbBlink 1.05s steps(1) infinite; }
+  @keyframes mbBlink { 0%,50%{opacity:1;} 51%,100%{opacity:0;} }
+</style>
+</head>
+<body>
+
+<!-- Desktop-only gate: covers everything on touch/mobile devices -->
+<div id="mobileBlock">
+  <div class="mb-glitch" data-text="SIGNAL LOST">SIGNAL LOST</div>
+  <p class="mb-text">This gate refuses to open here.</p>
+  <p class="mb-text big">Open it on a computer.</p>
+  <p class="mb-it">Questo cancello non si apre qui. Aprilo su un computer.</p>
+  <div class="mb-dots">&gt; awaiting a real machine<span class="mb-cursor">_</span></div>
+</div>
+
+<!-- ==========================================================================
+     AUDIO + MUTE  — swap the mp3 in assets/music.mp3 (see README)
+     ========================================================================== -->
+<audio id="bgm" loop preload="auto">
+  <source src="assets/porcodio.mp3" type="audio/mpeg" />
+</audio>
+<!-- Wrong-answer stingers — BOTH play at once on a wrong puzzle answer. -->
+<audio id="sfxWrong1" preload="auto"><source src="assets/wrong-buzzer.mp3" type="audio/mpeg" /></audio>
+<audio id="sfxWrong2" preload="auto"><source src="assets/angry-man.mp3" type="audio/mpeg" /></audio>
+<button id="muteBtn" title="Mute / Unmute" aria-label="Mute">🔊</button>
+
+<div class="sys-tag">SYS://francescos_gate — build 0.9.1-glitch</div>
+
+<div class="stage">
+
+  <!-- ======================================================================
+       BOOT SCREEN
+       ====================================================================== -->
+  <section class="gate active" id="boot">
+    <h1 class="glitch center">FRANCESCO'S&nbsp;GATE</h1>
+    <span class="it center" style="display:block;">Il Cancello di Francesco</span>
+    <div id="bootLog"></div>
+    <div class="center">
+      <button id="bootBtn" class="btn-primary" style="display:none;">Reconnect</button>
+      <span class="it" id="bootBtnIt" style="display:none;">Riconnetti</span>
+    </div>
+  </section>
+
+  <!-- ======================================================================
+       GATE 1 — SECURITY CHECK (FACE MATCH)
+       ====================================================================== -->
+  <section class="gate" id="gate1">
+    <h1 class="glitch center">SECURITY VERIFICATION REQUIRED</h1>
+    <span class="it center" style="display:block;">Verifica di sicurezza richiesta</span>
+
+    <p class="center subtle">
+      Look into the camera to confirm your identity.
+      <span class="it">Guarda nella telecamera per confermare la tua identità.</span>
+    </p>
+
+    <div class="cam-frame" id="camFrame">
+      <video id="cam" autoplay playsinline muted></video>
+      <div class="scanline"></div>
+      <div class="reticle"></div>
+    </div>
+
+    <div class="cam-status" id="camStatus">
+      Awaiting camera…
+      <span class="it">In attesa della telecamera…</span>
+    </div>
+
+    <div class="center">
+      <button id="camStartBtn" class="btn-primary">Enable Camera</button>
+      <span class="it" style="display:block;">Attiva la telecamera</span>
+      <button id="camRetryBtn" style="display:none;">Retry</button>
+    </div>
+  </section>
+
+  <!-- ======================================================================
+       GATE 2 — SWEDISH TEST
+       ====================================================================== -->
+  <section class="gate" id="gate2">
+    <h1 class="glitch center">SWEDISH CITIZENSHIP TEST</h1>
+    <span class="it center" style="display:block;">Test di cittadinanza svedese</span>
+
+    <div id="quizArea">
+      <div class="quiz-progress" id="quizProgress"></div>
+      <div class="phrase-box">
+        <div class="phrase-sv" id="phraseSv">—</div>
+        <!-- No Italian here on purpose — it would spoil the translation test. -->
+        <span class="subtle" id="phraseHint" style="font-size:0.72rem;">Translate the phrase</span>
+      </div>
+      <div class="options" id="options"></div>
+      <div class="insult" id="insult"></div>
+    </div>
+
+    <!-- Passport + certificate reveal -->
+    <div id="docReveal">
+      <h2 class="glitch center">WELCOME, CITIZEN</h2>
+      <span class="it center" style="display:block;">Benvenuto, cittadino</span>
+
+      <div class="doc-wrap">
+        <!-- ---- FAKE SWEDISH PASSPORT ---- -->
+        <div class="passport">
+          <div class="pp-head">
+            <span class="pp-crown">👑</span>
+            <div>
+              <div class="pp-country">SVERIGE · SWEDEN</div>
+              <div class="pp-type">PASS · PASSPORT · PASSEPORT</div>
+            </div>
+          </div>
+          <div class="pp-body">
+            <!-- Francesco photo: save the best headshot as assets/francesco.jpg.
+                 CSS auto-crops it to frame the face. Falls back to a PHOTO box
+                 if the file is missing. -->
+            <div class="photo-slot">
+              <img src="assets/francesco.jpg" alt="Francesco" class="photo-img"
+                   onerror="this.style.display='none';this.nextElementSibling.style.display='flex';" />
+              <span style="display:none;">PHOTO<br/>FOTO</span>
+            </div>
+            <div class="pp-fields">
+              <div class="pp-field"><label>Surname / Efternamn</label><b>SARDO</b></div>
+              <div class="pp-field hi"><label>Given names / Förnamn</label><b>FRANCESCO</b></div>
+              <div class="pp-cols">
+                <div class="pp-field"><label>Nationality</label><b>SVENSK</b></div>
+                <div class="pp-field"><label>Sex</label><b>M</b></div>
+              </div>
+              <div class="pp-cols">
+                <div class="pp-field"><label>Date of birth</label><b>2000-01-01</b></div>
+                <div class="pp-field"><label>Passport No</label><b>SE0000000</b></div>
+              </div>
+            </div>
+          </div>
+          <div class="pp-mrz">P&lt;SWESARDO&lt;&lt;FRANCESCO&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;&lt;<br/>SE0000000&lt;7SWE0001019M3001011&lt;&lt;&lt;&lt;04</div>
+        </div>
+
+        <!-- ---- FAKE CITIZENSHIP CERTIFICATE ---- -->
+        <div class="certificate">
+          <div class="cert-crown">👑</div>
+          <div class="cert-auth">MIGRATIONSVERKET · SWEDISH MIGRATION AGENCY</div>
+          <h3>KONUNGARIKET SVERIGE</h3>
+          <div class="cert-sub">Certificate of Citizenship · Medborgarskapsbevis</div>
+          <div class="cert-body">
+            This is to certify that
+            <div class="cert-name">Francesco Sardo</div>
+            is hereby recognised as a citizen of the Kingdom of Sweden, with all
+            rights, duties and meatballs thereof.
+            <span class="it">Si certifica che Francesco Sardo è riconosciuto come cittadino del Regno di Svezia, con tutti i diritti, i doveri e le polpette del caso.</span>
+          </div>
+          <div class="cert-meta">
+            <span>Reg. no: SE-2026-000001</span>
+            <span>Stockholm · 01 JUL 2026</span>
+          </div>
+          <div class="cert-sign">
+            <div class="sig">
+              <div class="name">M. Andersson</div>
+              <div class="line">Registrar / Registrator</div>
+            </div>
+            <div class="seal">OFFICIAL<br/>SEAL</div>
+            <div class="sig">
+              <div class="name">E. Lindqvist</div>
+              <div class="line">Minister of Justice</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <button id="gate2Continue" class="btn-primary">Continue</button>
+      <span class="it" style="display:block;">Continua</span>
+    </div>
+  </section>
+
+  <!-- ======================================================================
+       GATE 3 — NAME SCRAMBLE PUZZLE
+       ====================================================================== -->
+  <section class="gate" id="gate3">
+    <h1 class="glitch center">CODEWORD PUZZLE</h1>
+    <span class="it center" style="display:block;">Enigma in codice</span>
+
+    <p class="center subtle">
+      Drag the letters anywhere. Line them up side by side, in the right order, to reveal the hidden code word.
+      <span class="it">Trascina le lettere ovunque. Allineale una accanto all'altra, nell'ordine giusto, per rivelare la parola in codice.</span>
+    </p>
+
+    <!-- open playfield: the whole alphabet is scattered in here; drag freely -->
+    <div class="playfield" id="playfield"></div>
+
+    <div class="center">
+      <button id="enterBtn" class="btn-primary">Enter</button>
+      <span class="it" id="enterBtnIt" style="display:none;">Entra</span>
+    </div>
+  </section>
+
+</div><!-- /.stage -->
+
+<!-- ==========================================================================
+     TRANSITION CUTSCENE
+     ========================================================================== -->
+<div id="cutscene">
+  <div class="cs-stage" id="csStage">
+    <div class="cs-bg" id="csBg"></div>
+    <div class="cs-shoulder" id="csShoulder"></div>
+    <div class="cs-char" id="csChar">
+      <img id="csImg" src="assets/pilot.png" alt="" />
+      <div class="cs-mouth" id="csMouth"></div>
+    </div>
+  </div>
+  <div class="cs-dialogue">
+    <div class="cs-speaker" id="csSpeaker"></div>
+    <div class="cs-text" id="csText"></div>
+    <div class="cs-it" id="csIt"></div>
+    <div class="cs-prompt" id="csPrompt">▶ click / any key</div>
+  </div>
+  <!-- fatvideo plays after the dialogue; top watermark clipped, first 0.5s skipped -->
+  <div id="csVideo">
+    <video id="csVideoEl" playsinline></video>
+    <div class="cs-video-skip">skip ▶</div>
+  </div>
+  <div class="cs-black clear" id="csBlack"></div>
+</div>
+<!-- cutscene sounds (user drops the mp3s in): plane take-off + master warning -->
+<audio id="sndSeatbelt" preload="auto"><source src="assets/seatbelt.mp3" type="audio/mpeg" /></audio>
+<audio id="sndMaster" preload="auto"><source src="assets/masterwarning.mp3" type="audio/mpeg" /></audio>
+
+<script>
+/* ==========================================================================
+   ENGINE — gate switching + shared helpers
+   ========================================================================== */
+const GATES = ["boot", "gate1", "gate2", "gate3"];
+
+function showGate(id) {
+  document.querySelectorAll(".gate").forEach(g => g.classList.remove("active"));
+  const el = document.getElementById(id);
+  if (el) el.classList.add("active");
+  window.scrollTo(0, 0);
+  // lifecycle hooks so a gate can (re)initialise when shown
+  if (id === "gate1") Gate1.onEnter();
+  if (id === "gate2") Gate2.onEnter();
+  if (id === "gate3") Gate3.onEnter();
+}
+
+/* ==========================================================================
+   AUDIO / MUTE
+   ========================================================================== */
+const bgm = document.getElementById("bgm");
+const muteBtn = document.getElementById("muteBtn");
+let muted = localStorage.getItem("fg_muted") === "1";   // shared with game.html
+let bgmStarted = false;
+bgm.loop = true; bgm.volume = 0.45; bgm.muted = muted;
+muteBtn.textContent = muted ? "🔇" : "🔊";
+
+// Music begins only after "Reconnect" is clicked (a user gesture), then loops.
+function startMusic() {
+  bgmStarted = true;
+  if (!muted) bgm.play().catch(() => {});
+}
+muteBtn.addEventListener("click", () => {
+  muted = !muted;
+  localStorage.setItem("fg_muted", muted ? "1" : "0");
+  bgm.muted = muted;
+  muteBtn.textContent = muted ? "🔇" : "🔊";
+  if (!muted && bgmStarted) bgm.play().catch(() => {});
+});
+
+// Wrong-answer sound: play BOTH stingers simultaneously (buzzer + angry man).
+const sfxWrong1 = document.getElementById("sfxWrong1"); // wrong-answer buzzer
+const sfxWrong2 = document.getElementById("sfxWrong2"); // angry man
+// Mix: buzzer quiet, angry man louder — both kept fairly low overall. Tweak here.
+sfxWrong1.volume = 0.18; // buzzer — lowered
+sfxWrong2.volume = 0.50; // angry man — louder than the buzzer
+function playWrong() {
+  if (muted) return;
+  [sfxWrong1, sfxWrong2].forEach(a => { try { a.currentTime = 0; a.play().catch(() => {}); } catch (e) {} });
+}
+
+/* ==========================================================================
+   GLITCH EFFECTS — occasional screen shake
+   ========================================================================== */
+setInterval(() => {
+  if (Math.random() < 0.18) {
+    document.body.classList.add("shake");
+    setTimeout(() => document.body.classList.remove("shake"), 400);
+  }
+}, 5000);
+
+/* ==========================================================================
+   BOOT SCREEN — fake broken loader, then reveal a "Reconnect" button that
+   actually starts Gate 1. Adds to the "site is broken" vibe.
+   ========================================================================== */
+const bootLines = [
+  { t: "> booting francescos_gate…", c: "" },
+  { t: "> loading assets……… OK", c: "" },
+  { t: "> mounting /gate1 /gate2 /gate3", c: "" },
+  { t: "! WARN: reality module not found", c: "warn" },
+  { t: "! WARN: this is not a game", c: "warn" },
+  { t: "> verifying visitor…", c: "" },
+  { t: "X ERROR: identity unknown", c: "err" },
+  { t: "X ERROR: connection to Sweden lost", c: "err" },
+  { t: "> attempting recovery…", c: "" },
+];
+(function runBoot() {
+  const log = document.getElementById("bootLog");
+  let i = 0;
+  const iv = setInterval(() => {
+    if (i >= bootLines.length) {
+      clearInterval(iv);
+      document.getElementById("bootBtn").style.display = "inline-block";
+      document.getElementById("bootBtnIt").style.display = "block";
+      return;
+    }
+    const line = bootLines[i++];
+    const div = document.createElement("div");
+    if (line.c) div.className = line.c;
+    div.textContent = line.t;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+    // keep only the last ~9 lines visible
+    while (log.children.length > 9) log.removeChild(log.firstChild);
+  }, 420);
+})();
+// low, heavy "thud" via Web Audio (no asset needed)
+function playThud() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AC();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(150, ctx.currentTime);
+    o.frequency.exponentialRampToValueAtTime(42, ctx.currentTime + 0.2);
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.9, ctx.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime + 0.42);
+    setTimeout(() => { try { ctx.close(); } catch (e) {} }, 700);
+  } catch (e) {}
+}
+
+// Reconnect gag: 1st click glitches/tilts it (broken), 2nd click drops it to the
+// floor with a heavy thud + screen shake, 3rd click actually reconnects.
+(function () {
+  const bootBtn = document.getElementById("bootBtn");
+  let clicks = 0;
+  bootBtn.addEventListener("click", () => {
+    clicks++;
+    if (clicks === 1) {
+      bootBtn.classList.add("cracked");
+      bootBtn.textContent = "Rec̸onn̷ect";     // glitched label
+    } else if (clicks === 2) {
+      const r = bootBtn.getBoundingClientRect();
+      bootBtn.textContent = "Reconnect";
+      document.getElementById("bootBtnIt").style.display = "none";   // don't leave the label behind
+      bootBtn.style.position = "fixed";
+      bootBtn.style.left = r.left + "px";
+      bootBtn.style.top = r.top + "px";
+      bootBtn.style.margin = "0"; bootBtn.style.zIndex = "60";
+      void bootBtn.offsetWidth;                          // reflow before transition
+      bootBtn.style.transition = "top 0.5s cubic-bezier(.55,0,.85,.35)";
+      bootBtn.style.top = (window.innerHeight - r.height - 10) + "px";
+      setTimeout(() => {                                 // impact
+        bootBtn.classList.remove("cracked");
+        bootBtn.classList.add("landed");
+        playThud();
+        document.body.classList.add("shake");
+        setTimeout(() => document.body.classList.remove("shake"), 440);
+      }, 510);
+    } else {
+      // 3rd click: it works
+      startMusic();
+      showGate("gate1");
+    }
+  });
+})();
+
+/* ==========================================================================
+   GATE 1 — SECURITY CHECK (FACE MATCH)
+   --------------------------------------------------------------------------
+   - Requests camera, shows live feed.
+   - Placeholder match: returns true after 3s of active camera.
+   - Hidden bypass: typing "francesco" anywhere skips this gate (no hint).
+   - Fail state -> "Access denied", allow retry.
+   ========================================================================== */
+const Gate1 = (() => {
+  const video = document.getElementById("cam");
+  const statusEl = document.getElementById("camStatus");
+  const startBtn = document.getElementById("camStartBtn");
+  const retryBtn = document.getElementById("camRetryBtn");
+  const frame = document.getElementById("camFrame");
+  let stream = null;
+  let matchTimer = null;
+  let passed = false;
+
+  function setStatus(text, itText, cls) {
+    statusEl.className = "cam-status" + (cls ? " " + cls : "");
+    statusEl.innerHTML = text + (itText ? ` <span class="it">${itText}</span>` : "");
+  }
+
+  async function startCamera() {
+    startBtn.style.display = "none";
+    retryBtn.style.display = "none";
+    setStatus("Requesting camera access…", "Richiesta di accesso alla telecamera…");
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      video.srcObject = stream;
+      setStatus("Scanning face…", "Scansione del volto…");
+      runFaceMatch();
+    } catch (err) {
+      setStatus("Camera unavailable. Check permissions.", "Telecamera non disponibile. Controlla i permessi.", "denied");
+      retryBtn.style.display = "inline-block";
+    }
+  }
+
+  function runFaceMatch() {
+    clearTimeout(matchTimer);
+    // ----------------------------------------------------------------------
+    // TODO: replace with face-api.js match against reference photo
+    //   1. Load models (ssdMobilenetv1 / faceRecognitionNet / faceLandmark68Net)
+    //   2. Compute descriptor for assets/francesco.jpg once (same photo as the passport).
+    //   3. On each video frame, detect + compute descriptor, compare with
+    //      faceapi.euclideanDistance(); pass if distance < ~0.5.
+    //   Replace the setTimeout below with that real check.
+    // ----------------------------------------------------------------------
+    matchTimer = setTimeout(() => {
+      const isMatch = placeholderFaceMatch(); // currently always true after 3s
+      if (isMatch) pass();
+      else fail();
+    }, 3000);
+  }
+
+  // Placeholder — returns true. Swap for real logic above.
+  function placeholderFaceMatch() { return true; }
+
+  function pass() {
+    if (passed) return;
+    passed = true;
+    clearTimeout(matchTimer);
+    setStatus("IDENTITY CONFIRMED ✓", "Identità confermata ✓", "ok");
+    frame.classList.add("flash-ok");
+    stopCamera();
+    setTimeout(() => showGate("gate2"), 1100);
+  }
+
+  // Exposed so the hidden "francesco" bypass can call it.
+  function bypass() { pass(); }
+
+  function fail() {
+    setStatus("Access denied — you are not Francesco.", "Accesso negato — tu non sei Francesco.", "denied");
+    playWrong(); // buzzer + angry man together
+    document.body.classList.add("shake");
+    setTimeout(() => document.body.classList.remove("shake"), 400);
+    retryBtn.style.display = "inline-block";
+  }
+
+  function stopCamera() {
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  }
+
+  // "Enable Camera" runs away: it hops to a random spot on the first 4 clicks,
+  // then finally lets you enable it on the 5th.
+  let camDodges = 0;
+  const camTaunts = [
+    ["Ah— hold still!", "Ah— fermo!"],
+    ["Too slow.", "Troppo lento."],
+    ["Nope. Try again.", "No. Riprova."],
+    ["Okay okay… last one.", "Va bene… l'ultima."],
+  ];
+  function moveCamBtn() {
+    const bw = startBtn.offsetWidth || 170, bh = startBtn.offsetHeight || 48;
+    const x = 24 + Math.random() * Math.max(40, window.innerWidth - bw - 48);
+    const y = 80 + Math.random() * Math.max(40, window.innerHeight - bh - 150);
+    startBtn.style.position = "fixed";
+    startBtn.style.margin = "0"; startBtn.style.zIndex = "60";
+    startBtn.style.transition = "left .16s ease, top .16s ease, transform .16s ease";
+    startBtn.style.left = x + "px"; startBtn.style.top = y + "px";
+    startBtn.style.transform = "rotate(" + (Math.random() * 18 - 9) + "deg)";
+  }
+  function resetCamBtn() {
+    camDodges = 0;
+    startBtn.style.position = ""; startBtn.style.left = ""; startBtn.style.top = "";
+    startBtn.style.margin = ""; startBtn.style.transform = ""; startBtn.style.transition = ""; startBtn.style.zIndex = "";
+  }
+
+  function onEnter() {
+    passed = false;
+    resetCamBtn();
+    startBtn.style.display = "inline-block";
+    retryBtn.style.display = "none";
+    setStatus("Awaiting camera…", "In attesa della telecamera…");
+  }
+
+  startBtn.addEventListener("click", () => {
+    if (camDodges < 4) { camDodges++; const t = camTaunts[camDodges - 1]; setStatus(t[0], t[1]); moveCamBtn(); return; }
+    resetCamBtn();
+    startCamera();
+  });
+  retryBtn.addEventListener("click", startCamera);
+
+  return { onEnter, bypass, isPassed: () => passed };
+})();
+
+/* ---- Hidden bypass: type "francesco" anywhere (only while Gate 1 active) ---- */
+(() => {
+  const target = "francesco";
+  let buf = "";
+  window.addEventListener("keydown", (e) => {
+    if (e.key.length !== 1) return;
+    buf = (buf + e.key.toLowerCase()).slice(-target.length);
+    if (buf === target && document.getElementById("gate1").classList.contains("active")) {
+      Gate1.bypass();
+    }
+  });
+})();
+
+/* ---- Skip code: type "983" anywhere to skip the current puzzle part ---- */
+(() => {
+  const code = "983";
+  let buf = "";
+  window.addEventListener("keydown", (e) => {
+    if (e.key.length !== 1) return;
+    buf = (buf + e.key).slice(-code.length);
+    if (buf === code) skipCurrentGate();
+  });
+  function skipCurrentGate() {
+    const active = (id) => document.getElementById(id).classList.contains("active");
+    if (active("boot")) showGate("gate1");
+    else if (active("gate1")) Gate1.bypass();     // -> gate2
+    else if (active("gate2")) showGate("gate3");
+    else if (active("gate3")) startCutscene();     // -> transition -> game
+  }
+})();
+
+/* ==========================================================================
+   GATE 2 — SWEDISH TEST
+   --------------------------------------------------------------------------
+   Edit PHRASES to change questions. Each: { sv, correct, options[] }.
+   Must answer all 5 correctly. Wrong answer -> Italian insult + reset that Q.
+   ========================================================================== */
+const Gate2 = (() => {
+  // ---- EDIT SWEDISH PHRASES HERE ----
+  // Each option is { en, it } so the English answer shows a grey Italian line.
+  // `correct` must match one option's `en` exactly.
+  const PHRASES = [
+    { sv: "Hej, hur mår du?", correct: "Hi, how are you?", options: [
+      { en: "Hi, how are you?",        it: "Ciao, come stai?" },
+      { en: "Goodbye, see you soon",   it: "Arrivederci, a presto" },
+      { en: "What time is it?",        it: "Che ore sono?" },
+      { en: "Where do you live?",      it: "Dove abiti?" },
+    ]},
+    { sv: "Jag heter Francesco", correct: "My name is Francesco", options: [
+      { en: "My name is Francesco",    it: "Mi chiamo Francesco" },
+      { en: "I am hungry",             it: "Ho fame" },
+      { en: "I like Francesco",        it: "Mi piace Francesco" },
+      { en: "This is my house",        it: "Questa è casa mia" },
+    ]},
+    { sv: "Var är tåget?", correct: "Where is the train?", options: [
+      { en: "Where is the train?",     it: "Dov'è il treno?" },
+      { en: "Where is the toilet?",    it: "Dov'è il bagno?" },
+      { en: "What is the price?",      it: "Qual è il prezzo?" },
+      { en: "When is dinner?",         it: "Quando è la cena?" },
+    ]},
+    { sv: "Jag älskar Sverige", correct: "I love Sweden", options: [
+      { en: "I love Sweden",           it: "Amo la Svezia" },
+      { en: "I live in Sweden",        it: "Vivo in Svezia" },
+      { en: "I miss Sweden",           it: "Mi manca la Svezia" },
+      { en: "I am from Sweden",        it: "Vengo dalla Svezia" },
+    ]},
+    { sv: "God morgon", correct: "Good morning", options: [
+      { en: "Good morning",            it: "Buongiorno" },
+      { en: "Good night",              it: "Buonanotte" },
+      { en: "Good luck",               it: "Buona fortuna" },
+      { en: "Good job",                it: "Ben fatto" },
+    ]},
+  ];
+  // Sarcastic Italian insults shown on a wrong answer.
+  const INSULTS = [
+    "Madonna mia, riprova. Madonna mia, riprova.",
+    "Ma dai… non ci siamo. Ma dai… non ci siamo.",
+    "Mamma mia, che disastro! Mamma mia, che disastro!",
+    "Ci risiamo… concentrati! Ci risiamo… concentrati!",
+  ];
+
+  const progressEl = document.getElementById("quizProgress");
+  const phraseEl = document.getElementById("phraseSv");
+  const optionsEl = document.getElementById("options");
+  const insultEl = document.getElementById("insult");
+  const quizArea = document.getElementById("quizArea");
+  const docReveal = document.getElementById("docReveal");
+  let idx = 0;
+
+  function shuffle(a) {
+    a = a.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function render() {
+    const q = PHRASES[idx];
+    progressEl.textContent = `Phrase ${idx + 1} / ${PHRASES.length}`;
+    phraseEl.textContent = q.sv;
+    insultEl.textContent = "";
+    optionsEl.innerHTML = "";
+    shuffle(q.options).forEach(opt => {
+      const b = document.createElement("button");
+      // NOTE: the Swedish test intentionally shows NO Italian translation —
+      // translating the answers would give the whole test away.
+      b.textContent = opt.en;
+      b.addEventListener("click", () => choose(b, opt, q));
+      optionsEl.appendChild(b);
+    });
+  }
+
+  function choose(btn, opt, q) {
+    if (opt.en === q.correct) {
+      btn.classList.add("right");
+      [...optionsEl.children].forEach(c => c.disabled = true);
+      idx++;
+      if (idx >= PHRASES.length) {
+        setTimeout(reveal, 600);
+      } else {
+        setTimeout(render, 600);
+      }
+    } else {
+      btn.classList.add("wrong");
+      playWrong(); // buzzer + angry man together
+      insultEl.textContent = INSULTS[Math.floor(Math.random() * INSULTS.length)];
+      document.body.classList.add("shake");
+      setTimeout(() => document.body.classList.remove("shake"), 400);
+      // reset that question (reshuffle) after a beat
+      setTimeout(render, 900);
+    }
+  }
+
+  function reveal() {
+    quizArea.style.display = "none";
+    docReveal.classList.add("show");
+  }
+
+  function onEnter() {
+    idx = 0;
+    quizArea.style.display = "block";
+    docReveal.classList.remove("show");
+    render();
+  }
+
+  document.getElementById("gate2Continue").addEventListener("click", () => showGate("gate3"));
+
+  return { onEnter };
+})();
+
+/* ==========================================================================
+   GATE 3 — CODEWORD PUZZLE (free-drag the whole alphabet)
+   --------------------------------------------------------------------------
+   The entire A–Z alphabet (plus any duplicate letters the code word needs —
+   FRANCESCO needs a 2nd "C") is scattered across the open .playfield. Every
+   tile is freely draggable ANYWHERE (mouse OR touch, via Pointer Events).
+
+   There are no slots. You win the moment the code word's letters end up in a
+   horizontal run, side by side and in order — F R A N C E S C O — anywhere in
+   the field. Adjacency is checked geometrically: each next tile must sit just
+   to the right of the previous one and on roughly the same line.
+
+   Change the hidden word by editing TARGET (duplicates are auto-added).
+   ========================================================================== */
+const Gate3 = (() => {
+  const TARGET = "FRANCESCO".split("");
+  const fieldEl = document.getElementById("playfield");
+  const enterBtn = document.getElementById("enterBtn");
+  const enterBtnIt = document.getElementById("enterBtnIt");
+  let solved = false;
+
+  function shuffle(a) {
+    a = a.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  // Full alphabet, plus extra copies for any letter the target repeats.
+  function buildPool() {
+    const need = {};
+    TARGET.forEach(c => need[c] = (need[c] || 0) + 1);
+    const pool = [];
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").forEach(l => {
+      const count = Math.max(1, need[l] || 0); // >=1 of every letter, more if repeated
+      for (let k = 0; k < count; k++) pool.push(l);
+    });
+    return shuffle(pool);
+  }
+
+  function build() {
+    solved = false;
+    fieldEl.innerHTML = "";
+    enterBtn.classList.remove("show");
+    enterBtnIt.style.display = "none";
+
+    const pool = buildPool();
+    // scatter across a jittered grid so tiles don't pile on one another
+    const cols = 6, rows = Math.ceil(pool.length / cols);
+    const cells = shuffle([...Array(cols * rows).keys()]);
+    pool.forEach((letter, i) => {
+      const t = document.createElement("div");
+      t.className = "drag-tile";
+      t.textContent = letter;
+      fieldEl.appendChild(t);
+      place(t, cells[i], cols, rows);
+      t.addEventListener("pointerdown", onDown);
+    });
+  }
+
+  // Pin a tile into a (jittered) grid cell of the playfield.
+  function place(t, cell, cols, rows) {
+    const w = fieldEl.clientWidth, h = fieldEl.clientHeight;
+    const tw = t.offsetWidth || 44, th = t.offsetHeight || 54;
+    const cw = w / cols, ch = h / rows;
+    const cx = (cell % cols) * cw, cy = Math.floor(cell / cols) * ch;
+    t.style.position = "absolute";
+    t.style.left = Math.min(w - tw, cx + Math.random() * Math.max(0, cw - tw)) + "px";
+    t.style.top  = Math.min(h - th, cy + Math.random() * Math.max(0, ch - th)) + "px";
+  }
+
+  // ---- drag (Pointer Events; works for mouse + touch) ----
+  let drag = null; // { el, offX, offY }
+
+  function onDown(e) {
+    e.preventDefault();
+    const t = e.currentTarget;
+    const rect = t.getBoundingClientRect();
+    const frect = fieldEl.getBoundingClientRect();
+    drag = { el: t, offX: e.clientX - rect.left, offY: e.clientY - rect.top, frect };
+    t.classList.add("dragging");
+    try { t.setPointerCapture(e.pointerId); } catch (_) {}
+    t.addEventListener("pointermove", onMove);
+    t.addEventListener("pointerup", onUp);
+    t.addEventListener("pointercancel", onUp);
+  }
+
+  function onMove(e) {
+    if (!drag) return;
+    const t = drag.el, f = drag.frect;
+    // position within the playfield, clamped to its bounds
+    let x = e.clientX - drag.offX - f.left;
+    let y = e.clientY - drag.offY - f.top;
+    x = Math.max(0, Math.min(x, f.width - t.offsetWidth));
+    y = Math.max(0, Math.min(y, f.height - t.offsetHeight));
+    t.style.left = x + "px";
+    t.style.top = y + "px";
+    // live-check so it lights up the instant the word lines up
+    if (detectWin()) reveal(true);
+    else if (solved) reveal(false);
+  }
+
+  function onUp(e) {
+    const t = drag.el;
+    t.classList.remove("dragging");
+    try { t.releasePointerCapture(e.pointerId); } catch (_) {}
+    t.removeEventListener("pointermove", onMove);
+    t.removeEventListener("pointerup", onUp);
+    t.removeEventListener("pointercancel", onUp);
+    drag = null;
+    reveal(detectWin());
+  }
+
+  // Geometry: is tile b immediately to the right of tile a, same line?
+  function center(t) { const r = t.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height }; }
+  function isRightNeighbor(a, b) {
+    const ca = center(a), cb = center(b);
+    const dx = cb.x - ca.x, dy = Math.abs(cb.y - ca.y);
+    return dx > ca.w * 0.55 && dx < ca.w * 1.7 && dy < ca.h * 0.6;
+  }
+
+  // Is there a left-to-right adjacent run of tiles spelling TARGET anywhere?
+  // Returns the winning tiles (for highlighting) or null. DFS handles the
+  // repeated "C" by trying every candidate tile.
+  function detectWin() {
+    const tiles = [...fieldEl.querySelectorAll(".drag-tile")];
+    let winning = null;
+    function dfs(prev, idx, used) {
+      if (idx === TARGET.length) return used.slice();
+      for (const t of tiles) {
+        if (used.includes(t)) continue;
+        if (t.textContent !== TARGET[idx]) continue;
+        if (prev && !isRightNeighbor(prev, t)) continue;
+        used.push(t);
+        const res = dfs(t, idx + 1, used);
+        if (res) return res;
+        used.pop();
+      }
+      return null;
+    }
+    for (const t of tiles) {
+      if (t.textContent !== TARGET[0]) continue;
+      const res = dfs(t, 1, [t]);
+      if (res) { winning = res; break; }
+    }
+    tiles.forEach(t => t.classList.remove("win"));
+    if (winning) winning.forEach(t => t.classList.add("win"));
+    return !!winning;
+  }
+
+  function reveal(win) {
+    solved = win;
+    if (win) {
+      enterBtn.classList.add("show");
+      enterBtnIt.style.display = "block";
+    } else {
+      enterBtn.classList.remove("show");
+      enterBtnIt.style.display = "none";
+    }
+  }
+
+  function onEnter() { build(); }
+
+  enterBtn.addEventListener("click", startCutscene);
+
+  return { onEnter };
+})();
+
+/* ==========================================================================
+   TRANSITION CUTSCENE — plane-cabin visual novel, then -> game.html
+   --------------------------------------------------------------------------
+   Beats: black + seatbelt sound -> fade in -> pilot tells the passenger he
+   weighs too much (typewriter, head-bob, mouth flap, click to advance) ->
+   master-warning on the emergency-landing line -> black -> game.html.
+
+   Edit CS_LINES to change the script. `view` = "pilot" (her face, no shoulder)
+   or "fat" (over-the-shoulder of the passenger). Mouth positions are tuned per
+   view in setView() (--my / --mw as a % of the character image).
+   ========================================================================== */
+const CS_LINES = [
+  { view:"pilot", who:"CAPTAIN",   text:"Attention. This is your captain speaking… personally.", it:"Attenzione. Parla il vostro capitano… di persona." },
+  { view:"pilot", who:"CAPTAIN",   text:"We just ran the numbers for the flight to Sweden.",       it:"Abbiamo appena fatto i calcoli per il volo verso la Svezia." },
+  { view:"fat",   who:"PASSENGER", text:"…is there a problem, captain?",                          it:"…c'è un problema, capitano?" },
+  { view:"pilot", who:"CAPTAIN",   text:"Sir, you weigh too much. We won't make it to Sweden.",   it:"Signore, pesa troppo. Non arriveremo in Svezia." },
+  { view:"fat",   who:"PASSENGER", text:"Excuse me?! I had a salad yesterday.",                   it:"Come, scusi?! Ieri ho mangiato un'insalata." },
+  { view:"pilot", who:"CAPTAIN",   text:"The plane keeps tilting toward the side you're sitting on.", it:"L'aereo continua a inclinarsi verso il lato dove è seduto." },
+  { view:"fat",   who:"PASSENGER", text:"…that is not my fault.",                                 it:"…non è colpa mia." },
+  { view:"pilot", who:"CAPTAIN",   text:"We've already lost half our fuel on this flight — and we just took off.", it:"Abbiamo già perso metà del carburante su questo volo — e siamo appena decollati." },
+  { view:"fat",   who:"PASSENGER", text:"So what are you saying, captain?",                       it:"Quindi cosa sta dicendo, capitano?" },
+  { view:"pilot", who:"CAPTAIN",   text:"We have to make an emergency landing for more fuel.",     it:"Dobbiamo fare un atterraggio d'emergenza per fare rifornimento.", master:true },
+  { view:"pilot", who:"CAPTAIN",   text:"And you're going to help us find it. Down there.",        it:"E Lei ci aiuterà a trovarlo. Laggiù." },
+  { view:"fat",   who:"PASSENGER", text:"…me? Fine. Point me at the fuel.",                       it:"…io? E va bene. Mi indichi il carburante." },
+  { view:"pilot", who:"CAPTAIN",   text:"Great. I'm going to go watch Bridgerton before we land.", it:"Ottimo. Vado a guardare Bridgerton prima di atterrare." },
+  { view:"pilot", who:"CAPTAIN",   text:"Brace for descent.",                                     it:"Prepararsi alla discesa." },
+];
+
+const cs = {
+  root: null, black: null, bg: null, char: null, img: null, mouth: null, shoulder: null,
+  speaker: null, text: null, it: null, prompt: null,
+  index: 0, typing: false, timer: null, mouthTimer: null, full: "", active: false,
+};
+
+function startCutscene() {
+  cs.root = document.getElementById("cutscene");
+  cs.black = document.getElementById("csBlack");
+  cs.bg = document.getElementById("csBg");
+  cs.char = document.getElementById("csChar");
+  cs.img = document.getElementById("csImg");
+  cs.mouth = document.getElementById("csMouth");
+  cs.shoulder = document.getElementById("csShoulder");
+  cs.speaker = document.getElementById("csSpeaker");
+  cs.text = document.getElementById("csText");
+  cs.it = document.getElementById("csIt");
+  cs.prompt = document.getElementById("csPrompt");
+
+  cs.root.classList.add("show");
+  cs.black.classList.remove("clear");          // start fully black
+  cs.active = false;                            // no advancing during the intro black
+
+  // black screen + plane take-off sound
+  playSnd("sndSeatbelt");
+  setTimeout(() => {
+    cs.black.classList.add("clear");            // fade cabin in
+    cs.index = 0; cs.active = true;
+    csShowLine(0);
+  }, 3200);
+
+  // advance on any click / key
+  cs.root.addEventListener("click", csAdvance);
+  window.addEventListener("keydown", csKey, true);
+}
+
+function csKey(e) {
+  if (!cs.active) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;  // let dev shortcuts through
+  e.preventDefault(); csAdvance();
+}
+
+function playSnd(id) {
+  const a = document.getElementById(id);
+  if (a) { try { a.currentTime = 0; a.volume = 0.7; a.play().catch(() => {}); } catch (e) {} }
+}
+
+function setView(v) {
+  if (v === "pilot") {
+    cs.img.src = "assets/pilot.png";
+    cs.char.style.setProperty("--mx", "49%");
+    cs.char.style.setProperty("--my", "41.5%");
+    cs.char.style.setProperty("--mw", "1.7vh");
+    cs.char.style.setProperty("--mh", "1.0vh");
+    cs.shoulder.style.display = "none";
+    cs.bg.classList.add("flip");               // mirror the cabin when the pilot talks
+  } else {
+    cs.img.src = "assets/fat.png";
+    cs.char.style.setProperty("--mx", "47.3%");
+    cs.char.style.setProperty("--my", "13.4%");
+    cs.char.style.setProperty("--mw", "1.8vh");
+    cs.char.style.setProperty("--mh", "1.15vh");
+    cs.shoulder.style.display = "block";        // over-the-shoulder (back of pilot) blur
+    cs.bg.classList.remove("flip");
+  }
+}
+
+function csShowLine(i) {
+  const line = CS_LINES[i];
+  setView(line.view);
+  cs.speaker.textContent = line.who;
+  cs.it.textContent = line.it;
+  cs.full = line.text;
+  cs.text.textContent = "";
+  cs.prompt.style.opacity = 0;
+  if (line.master) playSnd("sndMaster");        // master warning on the landing line
+  cs.char.classList.add("bob");
+  cs.mouth.classList.add("talk");
+  // keep the mouth flapping for TWICE as long as the text takes to type out
+  clearTimeout(cs.mouthTimer);
+  cs.mouthTimer = setTimeout(stopTalking, cs.full.length * 34 * 2);
+  csType();
+}
+
+function csType() {
+  cs.typing = true; let k = 0;
+  clearInterval(cs.timer);
+  cs.timer = setInterval(() => {
+    cs.text.textContent = cs.full.slice(0, ++k);
+    if (k >= cs.full.length) csTypeDone();
+  }, 34);
+}
+function csTypeDone() {                          // text finished — mouth/bob keep going
+  clearInterval(cs.timer); cs.typing = false;
+  cs.prompt.style.opacity = 1;
+}
+function stopTalking() {                         // called ~2x the type time later
+  clearTimeout(cs.mouthTimer);
+  cs.char.classList.remove("bob");
+  cs.mouth.classList.remove("talk");
+}
+
+function csAdvance() {
+  if (!cs.active) return;
+  if (cs.typing) { cs.text.textContent = cs.full; csTypeDone(); return; }  // finish line instantly
+  cs.index++;
+  if (cs.index >= CS_LINES.length) { csEnd(); return; }
+  csShowLine(cs.index);
+}
+
+function csEnd() {
+  cs.active = false;
+  clearTimeout(cs.mouthTimer); stopTalking();
+  cs.black.classList.remove("clear");           // fade to black
+  // The AI video is now the game's FINALE (shown after every gas can is
+  // collected and you take off), so the intro cutscene goes straight to the map.
+  setTimeout(gotoGame, 900);
+}
+function gotoGame() { window.location.href = "game.html"; }
+
+/* ==========================================================================
+   DEV SHORTCUT — Ctrl+Shift+S to jump to any gate (testing only)
+   ========================================================================== */
+window.addEventListener("keydown", (e) => {
+  if (e.ctrlKey && e.shiftKey && (e.key === "S" || e.key === "s")) {
+    e.preventDefault();
+    console.log("%c[DEV] Gate jump", "color:#00e5ff;font-weight:bold");
+    console.log("Available gates:", GATES.join(", "), "| plus 'cutscene'");
+    const choice = prompt("DEV: jump to which gate?\nOptions: " + GATES.join(", ") + ", cutscene");
+    if (!choice) return;
+    if (choice === "cutscene") startCutscene();
+    else if (GATES.includes(choice)) showGate(choice);
+    else console.warn("[DEV] unknown gate:", choice);
+  }
+});
+
+</script>
+</body>
+</html>
