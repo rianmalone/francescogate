@@ -761,6 +761,7 @@ muteBtn.textContent = muted ? "🔇" : "🔊";
 
 // Music begins only after "Reconnect" is clicked (a user gesture), then loops.
 function startMusic() {
+  if (document.documentElement.classList.contains("is-mobile")) return;   // no audio on mobile
   bgmStarted = true;
   if (!muted) bgm.play().catch(() => {});
 }

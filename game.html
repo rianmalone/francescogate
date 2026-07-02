@@ -1487,6 +1487,7 @@ function startEndgame() {
    (shared "fg_muted" key with the puzzle site).
    ========================================================================== */
 const BGM = (() => {
+  if (document.documentElement.classList.contains("is-mobile")) return { play: () => {} };   // no audio on mobile
   const VOL = 0.33, FADE_MS = 750;
   const tracks = {
     porcodio: { el: document.getElementById("bgm") },                         // map + runner
