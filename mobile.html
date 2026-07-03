@@ -399,18 +399,28 @@
   }
   function scheduleRender() { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; render(); }); }
   function sizeCanvas() {
-    DSP = Math.round(Math.min(window.innerWidth * 0.84, window.innerHeight * 0.62, 380));
+    DSP = Math.round(Math.min(window.innerWidth * 0.9, window.innerHeight * 0.66, 440));
     canvas.style.width = canvas.style.height = DSP + "px";
     canvas.width = canvas.height = Math.round(DSP * DPR);
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     render();
   }
+  // forgiving "fat finger" brush: split every leaf within a small radius of the touch,
+  // not just the one exact point — makes tiny circles far easier to hit while dragging.
+  const BRUSH = 0.03, bd = BRUSH * 0.7;
+  const BRUSH_PTS = [[0,0],[BRUSH,0],[-BRUSH,0],[0,BRUSH],[0,-BRUSH],[bd,bd],[-bd,bd],[bd,-bd],[-bd,-bd]];
   function onPointer(e) {
     if (!koalaOn) return;
     const rect = canvas.getBoundingClientRect();
     const nx = (e.clientX - rect.left) / rect.width, ny = (e.clientY - rect.top) / rect.height;
-    if (nx < 0 || ny < 0 || nx > 1 || ny > 1) return;
-    if (splitNode(leafAt(nx, ny))) {
+    if (nx < -0.06 || ny < -0.06 || nx > 1.06 || ny > 1.06) return;
+    let did = false;
+    for (let k = 0; k < BRUSH_PTS.length; k++) {
+      const px = nx + BRUSH_PTS[k][0], py = ny + BRUSH_PTS[k][1];
+      if (px < 0 || py < 0 || px > 1 || py > 1) continue;
+      if (splitNode(leafAt(px, py))) did = true;
+    }
+    if (did) {
       if (!kHint.classList.contains("gone")) kHint.classList.add("gone");
       scheduleRender();
     }
