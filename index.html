@@ -515,6 +515,26 @@
   .mb-dots { margin-top: 20px; color: #4d7d7d; font-size: 0.78rem; letter-spacing: 0.05em; }
   .mb-cursor { animation: mbBlink 1.05s steps(1) infinite; }
   @keyframes mbBlink { 0%,50%{opacity:1;} 51%,100%{opacity:0;} }
+
+  /* ---- Gate 4: decode ---- */
+  .cipher {
+    margin: 22px auto; max-width: 520px; padding: 16px 18px; text-align: center;
+    font-family: ui-monospace, "Courier New", monospace; font-size: clamp(0.95rem, 4.4vw, 1.25rem);
+    letter-spacing: 0.06em; line-height: 1.9; color: #7dffa8;
+    background: #050a08; border: 1px solid #16402c; border-radius: 8px;
+    box-shadow: inset 0 0 22px rgba(56,224,138,0.08); word-spacing: 0.12em;
+  }
+  .riddle-label { color: var(--grey); font-size: 0.82rem; letter-spacing: 0.14em; margin-bottom: 8px; text-transform: lowercase; }
+  .riddle-input {
+    font-family: inherit; text-align: center; width: min(80vw, 300px); font-size: 1.15rem;
+    background: #04120a; border: 1px solid #1f6b40; color: #d6ffe4; border-radius: 8px; padding: 12px 14px;
+  }
+  .riddle-input:focus { outline: none; border-color: #38e08a; box-shadow: 0 0 12px rgba(56,224,138,0.3); }
+  .riddle-input.wrong { border-color: #ff3b5c; animation: shakeX .35s; }
+  @keyframes shakeX { 0%,100%{transform:translateX(0);} 25%{transform:translateX(-6px);} 75%{transform:translateX(6px);} }
+  .riddle-msg { min-height: 1.4em; margin-top: 12px; font-size: 0.9rem; color: #ff6b81; }
+  .riddle-msg.ok { color: #38e08a; }
+  #gate4 .btn-primary { margin-top: 14px; }
 </style>
 </head>
 <body>
@@ -701,6 +721,28 @@
     </div>
   </section>
 
+  <!-- ======================================================================
+       GATE 4 — DECODE (reversed Swedish A1Z26 of "vem är närmast till mig i ålder")
+       ====================================================================== -->
+  <section class="gate" id="gate4">
+    <h1 class="glitch center">DECODE</h1>
+    <span class="it center" style="display:block;">Decodifica</span>
+
+    <p class="center subtle">
+      Decode the transmission, then answer the question in one word.
+      <span class="it">Decodifica la trasmissione, poi rispondi con una parola.</span>
+    </p>
+
+    <div class="cipher" id="cipherText">18 5 4 12 27, 9, 7 9 13, 12 12 9 20, 20 19 1 13 18 28 14, 18 28, 13 5 22</div>
+
+    <div class="center">
+      <div class="riddle-label">answer in one word</div>
+      <input id="decodeInput" class="riddle-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="…" />
+      <div><button id="decodeSubmit" class="btn-primary">Enter</button></div>
+      <div class="riddle-msg" id="decodeMsg"></div>
+    </div>
+  </section>
+
 </div><!-- /.stage -->
 
 <!-- ==========================================================================
@@ -719,7 +761,7 @@
     <div class="cs-speaker" id="csSpeaker"></div>
     <div class="cs-text" id="csText"></div>
     <div class="cs-it" id="csIt"></div>
-    <div class="cs-prompt" id="csPrompt">▶ click / any key</div>
+    <div class="cs-prompt" id="csPrompt">▶ press Enter</div>
   </div>
   <!-- fatvideo plays after the dialogue; top watermark clipped, first 0.5s skipped -->
   <div id="csVideo">
@@ -736,7 +778,7 @@
 /* ==========================================================================
    ENGINE — gate switching + shared helpers
    ========================================================================== */
-const GATES = ["boot", "gate1", "gate2", "gate3"];
+const GATES = ["boot", "gate1", "gate2", "gate3", "gate4"];
 
 function showGate(id) {
   document.querySelectorAll(".gate").forEach(g => g.classList.remove("active"));
@@ -747,6 +789,7 @@ function showGate(id) {
   if (id === "gate1") Gate1.onEnter();
   if (id === "gate2") Gate2.onEnter();
   if (id === "gate3") Gate3.onEnter();
+  if (id === "gate4") Gate4.onEnter();
 }
 
 /* ==========================================================================
@@ -761,9 +804,8 @@ muteBtn.textContent = muted ? "🔇" : "🔊";
 
 // Music begins only after "Reconnect" is clicked (a user gesture), then loops.
 function startMusic() {
-  if (document.documentElement.classList.contains("is-mobile")) return;   // no audio on mobile
-  bgmStarted = true;
-  if (!muted) bgm.play().catch(() => {});
+  // Music now lives ONLY in the cloud map (game.html). The puzzle site + plane
+  // cutscene stay silent, so nothing plays here.
 }
 muteBtn.addEventListener("click", () => {
   muted = !muted;
@@ -1009,19 +1051,6 @@ const Gate1 = (() => {
   return { onEnter, bypass, isPassed: () => passed };
 })();
 
-/* ---- Hidden bypass: type "francesco" anywhere (only while Gate 1 active) ---- */
-(() => {
-  const target = "francesco";
-  let buf = "";
-  window.addEventListener("keydown", (e) => {
-    if (e.key.length !== 1) return;
-    buf = (buf + e.key.toLowerCase()).slice(-target.length);
-    if (buf === target && document.getElementById("gate1").classList.contains("active")) {
-      Gate1.bypass();
-    }
-  });
-})();
-
 /* ---- Skip code: type "983" anywhere to skip the current puzzle part ---- */
 (() => {
   const code = "983";
@@ -1036,7 +1065,8 @@ const Gate1 = (() => {
     if (active("boot")) showGate("gate1");
     else if (active("gate1")) Gate1.bypass();     // -> gate2
     else if (active("gate2")) showGate("gate3");
-    else if (active("gate3")) startCutscene();     // -> transition -> game
+    else if (active("gate3")) showGate("gate4");   // -> decode gate
+    else if (active("gate4")) startCutscene();     // -> transition -> game
   }
 })();
 
@@ -1206,7 +1236,7 @@ const Gate2 = (() => {
    Change the hidden word by editing TARGET (duplicates are auto-added).
    ========================================================================== */
 const Gate3 = (() => {
-  const TARGET = "FRANCESCO".split("");
+  const TARGET = "MORGAN".split("");
   const fieldEl = document.getElementById("playfield");
   const enterBtn = document.getElementById("enterBtn");
   const enterBtnIt = document.getElementById("enterBtnIt");
@@ -1356,8 +1386,34 @@ const Gate3 = (() => {
 
   function onEnter() { build(); }
 
-  enterBtn.addEventListener("click", startCutscene);
+  enterBtn.addEventListener("click", () => showGate("gate4"));
 
+  return { onEnter };
+})();
+
+/* ==========================================================================
+   GATE 4 — DECODE. Cipher = reversed A1Z26 of "who is closest in age to me".
+   Answer = MORGAN. Any casing / spacing / punctuation passes.
+   ========================================================================== */
+const Gate4 = (() => {
+  const input = document.getElementById("decodeInput");
+  const submit = document.getElementById("decodeSubmit");
+  const msg = document.getElementById("decodeMsg");
+  const ANSWER = "morgan";
+  const norm = s => (s || "").toLowerCase().replace(/[^a-z]/g, "");
+  function check() {
+    if (norm(input.value) === ANSWER) {
+      msg.textContent = "✓ decoded"; msg.className = "riddle-msg ok";
+      startCutscene();
+    } else {
+      msg.textContent = "> not quite — decode again."; msg.className = "riddle-msg";
+      input.classList.add("wrong"); try { playWrong(); } catch (e) {}
+      setTimeout(() => input.classList.remove("wrong"), 380);
+    }
+  }
+  submit.addEventListener("click", check);
+  input.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); check(); } });
+  function onEnter() { input.value = ""; msg.textContent = ""; msg.className = "riddle-msg"; setTimeout(() => input.focus(), 120); }
   return { onEnter };
 })();
 
@@ -1421,15 +1477,17 @@ function startCutscene() {
     csShowLine(0);
   }, 3200);
 
-  // advance on any click / key
-  cs.root.addEventListener("click", csAdvance);
+  // advance ONLY with Enter, and ONLY once the line has finished typing
   window.addEventListener("keydown", csKey, true);
 }
 
 function csKey(e) {
   if (!cs.active) return;
   if (e.ctrlKey || e.metaKey || e.altKey) return;  // let dev shortcuts through
-  e.preventDefault(); csAdvance();
+  if (e.key !== "Enter") return;                    // only Enter advances
+  e.preventDefault();
+  if (cs.typing) return;                            // can't skip — wait until they're done talking
+  csAdvance();
 }
 
 function playSnd(id) {
@@ -1493,8 +1551,7 @@ function stopTalking() {                         // called ~2x the type time lat
 }
 
 function csAdvance() {
-  if (!cs.active) return;
-  if (cs.typing) { cs.text.textContent = cs.full; csTypeDone(); return; }  // finish line instantly
+  if (!cs.active || cs.typing) return;             // no skipping mid-line; wait for them to finish
   cs.index++;
   if (cs.index >= CS_LINES.length) { csEnd(); return; }
   csShowLine(cs.index);

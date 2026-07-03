@@ -35,6 +35,46 @@
   #puzzle.solved { box-shadow: 0 0 44px 6px rgba(56,224,255,0.55); }
   #puzzle.solved .tile { box-shadow: none; }
 
+  /* ---------- opening riddle (before the puzzle) ---------- */
+  #riddle {
+    position: fixed; inset: 0; z-index: 12; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; text-align: center; padding: 34px 26px;
+    transition: opacity .8s ease, transform .8s ease;
+  }
+  #riddle.gone { opacity: 0; transform: scale(0.92); pointer-events: none; }
+  .r-q { font-size: clamp(0.95rem, 4.4vw, 1.2rem); line-height: 1.55; color: #e6f2ff; max-width: 520px; text-shadow: 0 0 16px rgba(56,224,255,0.22); }
+  .r-it { margin-top: 12px; font-size: clamp(0.72rem, 3.2vw, 0.85rem); line-height: 1.5; color: #4a5670; font-style: italic; max-width: 480px; }
+  .r-label { margin-top: 26px; color: #52627a; font-size: 0.74rem; letter-spacing: 0.22em; }
+  #rInput {
+    margin-top: 12px; font-family: inherit; text-align: center; width: min(78vw, 280px); font-size: 1.15rem;
+    background: #050a10; border: 1px solid #23405e; color: #e6f2ff; border-radius: 9px; padding: 12px 14px;
+  }
+  #rInput:focus { outline: none; border-color: #38e0ff; box-shadow: 0 0 12px rgba(56,224,255,0.3); }
+  #rInput.wrong { border-color: #ff3b5c; animation: rShake .35s; }
+  @keyframes rShake { 0%,100%{transform:translateX(0);} 25%{transform:translateX(-6px);} 75%{transform:translateX(6px);} }
+  #rGo {
+    margin-top: 14px; font-family: inherit; cursor: pointer; font-size: 1.1rem; font-weight: 800;
+    color: #04160c; background: linear-gradient(#5effa6, #21c46e); border: 1px solid #baffd6;
+    border-radius: 10px; padding: 10px 26px; box-shadow: 0 0 20px rgba(56,224,138,0.5);
+  }
+  .r-msg { min-height: 1.3em; margin-top: 14px; font-size: 0.82rem; color: #ff6b81; letter-spacing: 0.05em; }
+  /* koalastothemax-style reveal: circles split under your finger until the words resolve */
+  #koala {
+    display: block; border-radius: 10px; touch-action: none; cursor: crosshair;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.05), 0 0 46px rgba(0,0,0,0.65);
+  }
+  .k-hint {
+    margin-top: 18px; font-size: 0.7rem; letter-spacing: 0.32em; text-transform: uppercase;
+    color: #3a475c; transition: opacity .5s ease; animation: cuePulse 1.8s ease-in-out infinite;
+  }
+  .k-hint.gone { opacity: 0; animation: none; pointer-events: none; }
+  .k-answer {
+    margin-top: 20px; display: flex; flex-direction: column; align-items: center;
+    opacity: 0; transform: translateY(10px); pointer-events: none;
+    transition: opacity .7s ease, transform .7s ease;
+  }
+  .k-answer.show { opacity: 1; transform: none; pointer-events: auto; }
+
   /* ---------- "Ciao, Francesco." beat ---------- */
   #ciao {
     position: fixed; left: 0; right: 0; bottom: 9%; text-align: center; padding: 0 26px;
@@ -136,6 +176,16 @@
 </head>
 <body>
   <div id="stage">
+    <div id="riddle">
+      <canvas id="koala" width="380" height="380"></canvas>
+      <div class="k-hint" id="kHint">drag to reveal</div>
+      <div class="k-answer" id="kAnswer">
+        <div class="r-label">answer in one word</div>
+        <input id="rInput" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="…" />
+        <div><button id="rGo">↵</button></div>
+        <div class="r-msg" id="rMsg"></div>
+      </div>
+    </div>
     <div id="puzzle"></div>
     <div id="ciao">
       <div class="ciao-text">Ciao, Francesco.</div>
@@ -245,8 +295,139 @@
     shield.classList.remove("hit"); void shield.offsetWidth; shield.classList.add("hit");
   });
 
-  build();
-  let rt; window.addEventListener("resize", () => { if (solved) return; clearTimeout(rt); rt = setTimeout(build, 250); });
+  // ---- opening reveal: koalastothemax-style circle split ----
+  // The real question lives in the physical puzzle box Ryan hands over. On screen,
+  // one big circle splits into four under your finger, over and over, until the
+  // hidden words "ASK RYAN FOR THE PUZZLE" resolve; then the answer field appears.
+  const riddle = document.getElementById("riddle");
+  const rInput = document.getElementById("rInput");
+  const rGo = document.getElementById("rGo");
+  const rMsg = document.getElementById("rMsg");
+  const canvas = document.getElementById("koala");
+  const ctx = canvas.getContext("2d");
+  const kHint = document.getElementById("kHint");
+  const kAnswer = document.getElementById("kAnswer");
+  const RIDDLE_ANSWERS = ["keyboard", "tastiera"];
+  const MAXD = 6;                                   // 2^6 = 64x64 leaves at full split
+  const DPR = Math.min(window.devicePixelRatio || 1, 2);
+  let started = false, revealed = false, dragging = false;
+  let root = null, leaves = [], splittable = 1, raf = 0, DSP = 0;
+
+  // ---- hidden message baked into an offscreen canvas + integral image for O(1) averages ----
+  const SN = 256, IW = SN + 1;
+  const sr = new Float64Array(IW * IW), sg = new Float64Array(IW * IW), sb = new Float64Array(IW * IW);
+  function buildSource() {
+    const c = document.createElement("canvas"); c.width = c.height = SN;
+    const g = c.getContext("2d");
+    g.fillStyle = "#0a0e13"; g.fillRect(0, 0, SN, SN);
+    const lines = ["ASK RYAN", "FOR THE", "PUZZLE"];
+    let fs = SN * 0.2;
+    g.font = "900 " + fs + "px Arial, Helvetica, sans-serif";
+    const maxw = Math.max.apply(null, lines.map(t => g.measureText(t).width));
+    fs = fs * (SN * 0.86) / maxw;                   // scale so the widest line fills 86%
+    g.font = "900 " + fs + "px Arial, Helvetica, sans-serif";
+    g.fillStyle = "#eaf6ff"; g.textAlign = "center"; g.textBaseline = "middle";
+    const lh = fs * 1.15;
+    lines.forEach((t, i) => g.fillText(t, SN / 2, SN / 2 + (i - 1) * lh));
+    const d = g.getImageData(0, 0, SN, SN).data;
+    for (let y = 0; y < SN; y++) for (let x = 0; x < SN; x++) {
+      const p = (y * SN + x) * 4, i = (y + 1) * IW + (x + 1);
+      sr[i] = d[p]     + sr[i-1] + sr[i-IW] - sr[i-IW-1];
+      sg[i] = d[p + 1] + sg[i-1] + sg[i-IW] - sg[i-IW-1];
+      sb[i] = d[p + 2] + sb[i-1] + sb[i-IW] - sb[i-IW-1];
+    }
+  }
+  function avgColor(nx, ny, ns) {                   // average colour of a normalized square
+    let x = Math.round(nx * SN), y = Math.round(ny * SN),
+        x2 = Math.round((nx + ns) * SN), y2 = Math.round((ny + ns) * SN);
+    x = Math.max(0, Math.min(SN, x)); y = Math.max(0, Math.min(SN, y));
+    x2 = Math.max(0, Math.min(SN, x2)); y2 = Math.max(0, Math.min(SN, y2));
+    const n = Math.max(1, (x2 - x) * (y2 - y));
+    const A = y * IW + x, B = y * IW + x2, C = y2 * IW + x, D = y2 * IW + x2;
+    return [(sr[D]-sr[B]-sr[C]+sr[A]) / n, (sg[D]-sg[B]-sg[C]+sg[A]) / n, (sb[D]-sb[B]-sb[C]+sb[A]) / n];
+  }
+  function makeNode(x, y, s, depth) {
+    const c = avgColor(x, y, s);
+    return { x: x, y: y, s: s, depth: depth, r: c[0], g: c[1], b: c[2], children: null };
+  }
+  function splitNode(nd) {
+    if (nd.children || nd.depth >= MAXD) return false;
+    const h = nd.s / 2, d = nd.depth + 1;
+    nd.children = [ makeNode(nd.x, nd.y, h, d), makeNode(nd.x + h, nd.y, h, d),
+                    makeNode(nd.x, nd.y + h, h, d), makeNode(nd.x + h, nd.y + h, h, d) ];
+    const i = leaves.indexOf(nd);
+    if (i >= 0) leaves.splice(i, 1, nd.children[0], nd.children[1], nd.children[2], nd.children[3]);
+    splittable--;
+    for (let k = 0; k < 4; k++) if (nd.children[k].depth < MAXD) splittable++;
+    return true;
+  }
+  function leafAt(nx, ny) {
+    let nd = root;
+    while (nd.children) nd = nd.children[(ny >= nd.y + nd.s / 2 ? 2 : 0) + (nx >= nd.x + nd.s / 2 ? 1 : 0)];
+    return nd;
+  }
+  function render() {
+    ctx.clearRect(0, 0, DSP, DSP);
+    for (let i = 0; i < leaves.length; i++) {
+      const nd = leaves[i];
+      ctx.beginPath();
+      ctx.arc((nd.x + nd.s / 2) * DSP, (nd.y + nd.s / 2) * DSP, (nd.s * DSP / 2) * 0.94, 0, 6.2832);
+      ctx.fillStyle = "rgb(" + (nd.r | 0) + "," + (nd.g | 0) + "," + (nd.b | 0) + ")";
+      ctx.fill();
+    }
+  }
+  function scheduleRender() { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; render(); }); }
+  function sizeCanvas() {
+    DSP = Math.round(Math.min(window.innerWidth * 0.84, window.innerHeight * 0.62, 380));
+    canvas.style.width = canvas.style.height = DSP + "px";
+    canvas.width = canvas.height = Math.round(DSP * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    render();
+  }
+  function onPointer(e) {
+    if (started || revealed) return;
+    const rect = canvas.getBoundingClientRect();
+    const nx = (e.clientX - rect.left) / rect.width, ny = (e.clientY - rect.top) / rect.height;
+    if (nx < 0 || ny < 0 || nx > 1 || ny > 1) return;
+    if (splitNode(leafAt(nx, ny))) {
+      if (!kHint.classList.contains("gone")) kHint.classList.add("gone");
+      scheduleRender();
+      if (splittable === 0) revealAnswer();
+    }
+  }
+  function revealAnswer() {
+    if (revealed) return; revealed = true;
+    kHint.classList.add("gone");
+    kAnswer.classList.add("show");
+    setTimeout(() => { try { rInput.focus(); } catch (e) {} }, 450);
+  }
+
+  buildSource();
+  root = makeNode(0, 0, 1, 0); leaves = [root]; splittable = 1;
+  sizeCanvas();
+  canvas.addEventListener("pointerdown", e => { dragging = true; try { canvas.setPointerCapture(e.pointerId); } catch (x) {} onPointer(e); });
+  canvas.addEventListener("pointermove", e => { if (e.pointerType === "mouse" || dragging) onPointer(e); });
+  window.addEventListener("pointerup", () => { dragging = false; });
+
+  function checkRiddle() {
+    const v = (rInput.value || "").toLowerCase().replace(/[^a-z]/g, "");
+    if (RIDDLE_ANSWERS.includes(v)) {
+      rMsg.textContent = ""; started = true;
+      build();                                // build the puzzle UNDERNEATH first...
+      riddle.classList.add("gone");           // ...then fade the reveal away to show it (no black gap)
+      setTimeout(() => { riddle.style.display = "none"; }, 850);
+    } else {
+      rMsg.textContent = "not quite…"; rInput.classList.add("wrong");
+      setTimeout(() => rInput.classList.remove("wrong"), 380);
+    }
+  }
+  rGo.addEventListener("click", checkRiddle);
+  rInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); checkRiddle(); } });
+
+  let rt; window.addEventListener("resize", () => {
+    clearTimeout(rt);
+    rt = setTimeout(() => { if (started) { if (!solved) build(); } else sizeCanvas(); }, 250);
+  });
 })();
 </script>
 </body>
