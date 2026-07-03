@@ -70,10 +70,7 @@
   .k-hint.gone { opacity: 0; animation: none; pointer-events: none; }
   .k-answer {
     margin-top: 20px; display: flex; flex-direction: column; align-items: center;
-    opacity: 0; transform: translateY(10px); pointer-events: none;
-    transition: opacity .7s ease, transform .7s ease;
   }
-  .k-answer.show { opacity: 1; transform: none; pointer-events: auto; }
 
   /* ---------- "Ciao, Francesco." beat ---------- */
   #ciao {
@@ -176,7 +173,7 @@
 </head>
 <body>
   <div id="stage">
-    <div id="riddle">
+    <div id="riddle" style="display:none;">
       <canvas id="koala" width="380" height="380"></canvas>
       <div class="k-hint" id="kHint">drag to reveal</div>
       <div class="k-answer" id="kAnswer">
@@ -222,7 +219,7 @@
   const flash = document.getElementById("flash");
   const EMPTY = N * N - 1;
   let cell = 0, size = 0, board = [], tiles = [], solved = false;
-  let state = "puzzle", canAdvance = false;
+  let state = "puzzle", canAdvance = false, koalaOn = false, cheatTaps = 0;
 
   const xy = i => [i % N, Math.floor(i / N)];
   const neighbors = p => { const [x, y] = xy(p), r = []; if (x > 0) r.push(p - 1); if (x < N - 1) r.push(p + 1); if (y > 0) r.push(p - N); if (y < N - 1) r.push(p + N); return r; };
@@ -248,6 +245,18 @@
   function shuffle() { let e = board.indexOf(EMPTY), last = -1; for (let i = 0; i < 60; i++) { const ns = neighbors(e).filter(n => n !== last); const pick = ns[Math.floor(Math.random() * ns.length)];[board[e], board[pick]] = [board[pick], board[e]]; last = e; e = pick; } if (isSolved()) shuffle(); }
   function tap(id) { if (solved) return; const pos = board.indexOf(id), e = board.indexOf(EMPTY); if (!neighbors(pos).includes(e)) return;[board[pos], board[e]] = [board[e], board[pos]]; place(); if (isSolved()) win(); }
 
+  // Skip cheat: tap the EMPTY top-left cell 10x (blank must be sitting in the corner).
+  function skipPuzzle() { if (solved) return; board = [...Array(N * N).keys()]; place(); win(); }
+  wrap.addEventListener("click", (e) => {
+    if (solved || state !== "puzzle") return;
+    if (e.target === wrap && board[0] === EMPTY) {          // clicked the empty background
+      const rect = wrap.getBoundingClientRect();
+      const cx = Math.floor((e.clientX - rect.left) / cell), cy = Math.floor((e.clientY - rect.top) / cell);
+      if (cx === 0 && cy === 0) { if (++cheatTaps >= 10) { cheatTaps = 0; skipPuzzle(); } return; }
+    }
+    cheatTaps = 0;
+  });
+
   function win() {
     solved = true; state = "ciao";
     // complete the face
@@ -263,21 +272,35 @@
     setTimeout(() => { canAdvance = true; ciaoCue.classList.add("show"); }, 1400 + 5000);
   }
 
-  // tap anywhere (after the 5s) to move on from "Ciao"
+  // tap anywhere (after the 5s) to move on from "Ciao" -> the koala reveal
   document.addEventListener("click", (e) => {
-    if (state === "ciao" && canAdvance) { toQuestion(); }
+    if (state === "ciao" && canAdvance) { showKoala(); }
   });
 
-  function toQuestion() {
-    state = "transition";
+  // 3x3 solved + greeted -> bring in the koalastothemax reveal
+  function showKoala() {
+    state = "koala";
     stage.classList.add("leaving");             // puzzle + ciao blur away
     flash.classList.add("on");                   // ominous black swallow
     setTimeout(() => {
       wrap.style.display = "none"; ciao.style.display = "none";
+      riddle.style.display = "flex"; riddle.classList.remove("gone");
+      koalaOn = true;
+      sizeCanvas();                              // crisp at the current viewport
+      flash.classList.remove("on");              // reveal the circles from black
+    }, 850);
+  }
+
+  // koala answered -> the ominous Sweden question
+  function toQuestion() {
+    state = "transition"; koalaOn = false;
+    flash.classList.add("on");
+    setTimeout(() => {
+      riddle.classList.add("gone"); riddle.style.display = "none";
       question.classList.add("show");
       state = "question";
-      flash.classList.remove("on");              // reveal the question from black
-    }, 850);
+      flash.classList.remove("on");
+    }, 700);
   }
 
   document.getElementById("qYes").addEventListener("click", (e) => {
@@ -295,10 +318,10 @@
     shield.classList.remove("hit"); void shield.offsetWidth; shield.classList.add("hit");
   });
 
-  // ---- opening reveal: koalastothemax-style circle split ----
+  // ---- koalastothemax-style reveal (shown AFTER the 3x3 puzzle) ----
   // The real question lives in the physical puzzle box Ryan hands over. On screen,
   // one big circle splits into four under your finger, over and over, until the
-  // hidden words "ASK RYAN FOR THE PUZZLE" resolve; then the answer field appears.
+  // hidden words "ASK RYAN FOR THE PUZZLE" resolve. The answer field is always there.
   const riddle = document.getElementById("riddle");
   const rInput = document.getElementById("rInput");
   const rGo = document.getElementById("rGo");
@@ -308,10 +331,10 @@
   const kHint = document.getElementById("kHint");
   const kAnswer = document.getElementById("kAnswer");
   const RIDDLE_ANSWERS = ["keyboard", "tastiera"];
-  const MAXD = 6;                                   // 2^6 = 64x64 leaves at full split
+  const MAXD = 7;                                   // 2^7 = 128x128 leaves at full split
   const DPR = Math.min(window.devicePixelRatio || 1, 2);
-  let started = false, revealed = false, dragging = false;
-  let root = null, leaves = [], splittable = 1, raf = 0, DSP = 0;
+  let dragging = false;
+  let root = null, leaves = [], raf = 0, DSP = 0;
 
   // ---- hidden message baked into an offscreen canvas + integral image for O(1) averages ----
   const SN = 256, IW = SN + 1;
@@ -320,7 +343,7 @@
     const c = document.createElement("canvas"); c.width = c.height = SN;
     const g = c.getContext("2d");
     g.fillStyle = "#0a0e13"; g.fillRect(0, 0, SN, SN);
-    const lines = ["ASK RYAN", "FOR THE", "PUZZLE"];
+    const lines = ["FRÅGA RYAN", "OM", "PUSSLET"];   // Swedish: "ask Ryan for the puzzle"
     let fs = SN * 0.2;
     g.font = "900 " + fs + "px Arial, Helvetica, sans-serif";
     const maxw = Math.max.apply(null, lines.map(t => g.measureText(t).width));
@@ -357,8 +380,6 @@
                     makeNode(nd.x, nd.y + h, h, d), makeNode(nd.x + h, nd.y + h, h, d) ];
     const i = leaves.indexOf(nd);
     if (i >= 0) leaves.splice(i, 1, nd.children[0], nd.children[1], nd.children[2], nd.children[3]);
-    splittable--;
-    for (let k = 0; k < 4; k++) if (nd.children[k].depth < MAXD) splittable++;
     return true;
   }
   function leafAt(nx, ny) {
@@ -385,37 +406,30 @@
     render();
   }
   function onPointer(e) {
-    if (started || revealed) return;
+    if (!koalaOn) return;
     const rect = canvas.getBoundingClientRect();
     const nx = (e.clientX - rect.left) / rect.width, ny = (e.clientY - rect.top) / rect.height;
     if (nx < 0 || ny < 0 || nx > 1 || ny > 1) return;
     if (splitNode(leafAt(nx, ny))) {
       if (!kHint.classList.contains("gone")) kHint.classList.add("gone");
       scheduleRender();
-      if (splittable === 0) revealAnswer();
     }
-  }
-  function revealAnswer() {
-    if (revealed) return; revealed = true;
-    kHint.classList.add("gone");
-    kAnswer.classList.add("show");
-    setTimeout(() => { try { rInput.focus(); } catch (e) {} }, 450);
   }
 
   buildSource();
-  root = makeNode(0, 0, 1, 0); leaves = [root]; splittable = 1;
+  root = makeNode(0, 0, 1, 0); leaves = [root];
   sizeCanvas();
+  build();                                          // the 3x3 puzzle is the FIRST screen
   canvas.addEventListener("pointerdown", e => { dragging = true; try { canvas.setPointerCapture(e.pointerId); } catch (x) {} onPointer(e); });
   canvas.addEventListener("pointermove", e => { if (e.pointerType === "mouse" || dragging) onPointer(e); });
   window.addEventListener("pointerup", () => { dragging = false; });
 
   function checkRiddle() {
+    if (!koalaOn) return;
     const v = (rInput.value || "").toLowerCase().replace(/[^a-z]/g, "");
     if (RIDDLE_ANSWERS.includes(v)) {
-      rMsg.textContent = ""; started = true;
-      build();                                // build the puzzle UNDERNEATH first...
-      riddle.classList.add("gone");           // ...then fade the reveal away to show it (no black gap)
-      setTimeout(() => { riddle.style.display = "none"; }, 850);
+      rMsg.textContent = "";
+      toQuestion();                           // -> the ominous Sweden question
     } else {
       rMsg.textContent = "not quite…"; rInput.classList.add("wrong");
       setTimeout(() => rInput.classList.remove("wrong"), 380);
@@ -426,7 +440,7 @@
 
   let rt; window.addEventListener("resize", () => {
     clearTimeout(rt);
-    rt = setTimeout(() => { if (started) { if (!solved) build(); } else sizeCanvas(); }, 250);
+    rt = setTimeout(() => { if (koalaOn) sizeCanvas(); else if (state === "puzzle" && !solved) build(); }, 250);
   });
 })();
 </script>
