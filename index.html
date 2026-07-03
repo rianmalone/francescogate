@@ -535,6 +535,24 @@
   .riddle-msg { min-height: 1.4em; margin-top: 12px; font-size: 0.9rem; color: #ff6b81; }
   .riddle-msg.ok { color: #38e08a; }
   #gate4 .btn-primary { margin-top: 14px; }
+
+  /* Gate 3 hint — two-step confirm that cancels if the cursor leaves the area */
+  .hint-wrap { display: inline-block; position: relative; }
+  .hint-btn {
+    font-family: inherit; cursor: pointer; background: transparent;
+    border: 1px solid #2a3550; color: #6a7f9c; padding: 6px 18px; border-radius: 8px;
+    letter-spacing: 0.14em; font-size: 0.78rem; transition: border-color .2s, color .2s;
+  }
+  .hint-btn:hover { border-color: #4a5a7a; color: #a9bad2; }
+  .hint-confirm { display: none; color: #d8b24a; font-size: 0.82rem; letter-spacing: 0.06em; }
+  .hint-confirm.show { display: inline-flex; align-items: center; }
+  .hint-yes {
+    font-family: inherit; cursor: pointer; background: #2a2410; border: 1px solid #b8922f;
+    color: #f0d27a; padding: 5px 18px; border-radius: 7px; font-weight: 700; letter-spacing: 0.1em;
+  }
+  .hint-yes:hover { background: #3a3216; }
+  .hint-text { display: none; color: #7dffa8; font-size: 0.98rem; letter-spacing: 0.05em; text-shadow: 0 0 12px rgba(56,224,138,0.3); }
+  .hint-text.show { display: inline-block; animation: fadein .45s ease; }
 </style>
 </head>
 <body>
@@ -718,6 +736,22 @@
     <div class="center">
       <button id="enterBtn" class="btn-primary">Enter</button>
       <span class="it" id="enterBtnIt" style="display:none;">Entra</span>
+    </div>
+
+    <div class="center" style="margin-top:18px;">
+      <span class="hint-wrap" id="hintWrap">
+        <button id="hintBtn" class="hint-btn">hint?</button>
+        <span class="hint-confirm" id="hintConfirm">are you sure?&nbsp;<button id="hintYes" class="hint-yes">yes</button></span>
+        <span class="hint-text" id="hintText">the middle child<span class="it">la figlia di mezzo</span></span>
+      </span>
+    </div>
+
+    <div class="center" id="hint2Row" style="margin-top:12px; display:none;">
+      <span class="hint-wrap" id="hintWrap2">
+        <button id="hintBtn2" class="hint-btn">another hint?</button>
+        <span class="hint-confirm" id="hintConfirm2">wow, you really need another hint?&nbsp;<button id="hintYes2" class="hint-yes">yes</button></span>
+        <span class="hint-text" id="hintText2">bridgerton</span>
+      </span>
     </div>
   </section>
 
@@ -1236,7 +1270,7 @@ const Gate2 = (() => {
    Change the hidden word by editing TARGET (duplicates are auto-added).
    ========================================================================== */
 const Gate3 = (() => {
-  const TARGET = "MORGAN".split("");
+  const TARGET = "GRETA".split("");
   const fieldEl = document.getElementById("playfield");
   const enterBtn = document.getElementById("enterBtn");
   const enterBtnIt = document.getElementById("enterBtnIt");
@@ -1387,6 +1421,36 @@ const Gate3 = (() => {
   function onEnter() { build(); }
 
   enterBtn.addEventListener("click", () => showGate("gate4"));
+
+  // ---- hints: click -> confirm prompt; confirm sticks, but sliding the cursor
+  //      off the area before confirming cancels it back to normal. Revealing
+  //      hint 1 unlocks the (sassier) 2nd hint. ----
+  (function initHints() {
+    function wire(wrap, btn, confirm, yes, text, onReveal) {
+      let revealed = false;
+      btn.addEventListener("click", () => {
+        if (revealed) return;
+        btn.style.display = "none";
+        confirm.classList.add("show");
+      });
+      wrap.addEventListener("mouseleave", () => {       // slide off mid-confirm -> cancel
+        if (revealed) return;
+        confirm.classList.remove("show");
+        btn.style.display = "inline-block";
+      });
+      yes.addEventListener("click", () => {
+        revealed = true;
+        confirm.classList.remove("show");
+        btn.style.display = "none";
+        text.classList.add("show");
+        if (onReveal) onReveal();
+      });
+    }
+    const $ = id => document.getElementById(id);
+    wire($("hintWrap"), $("hintBtn"), $("hintConfirm"), $("hintYes"), $("hintText"),
+         () => { $("hint2Row").style.display = "block"; });   // -> unlock 2nd hint
+    wire($("hintWrap2"), $("hintBtn2"), $("hintConfirm2"), $("hintYes2"), $("hintText2"), null);
+  })();
 
   return { onEnter };
 })();
