@@ -1468,7 +1468,7 @@ const Gate4 = (() => {
   const norm = s => (s || "").toLowerCase().replace(/[^a-z]/g, "");
   let done = false;
   function check() {
-    if (done) return;                       // already solved — don't re-fire the cutscene
+    if (done || cs.started) return;         // already solved / cutscene running — don't re-fire or buzz
     if (norm(input.value) === ANSWER) {
       done = true; input.blur();            // stop further Enter presses from re-triggering
       msg.textContent = "✓ decoded"; msg.className = "riddle-msg ok";
@@ -1522,6 +1522,9 @@ const cs = {
 function startCutscene() {
   if (cs.started) return;                    // never restart once it's begun
   cs.started = true;
+  // drop focus off any gate input/button so Enter can't re-trigger a check
+  // (e.g. the decode input's Enter -> wrong answer -> playWrong buzzer)
+  try { document.activeElement && document.activeElement.blur(); } catch (e) {}
   cs.root = document.getElementById("cutscene");
   cs.black = document.getElementById("csBlack");
   cs.bg = document.getElementById("csBg");
