@@ -834,6 +834,7 @@ const muteBtn = document.getElementById("muteBtn");
 let muted = localStorage.getItem("fg_muted") === "1";   // shared with game.html
 let bgmStarted = false;
 bgm.loop = true; bgm.volume = 0.33; bgm.muted = muted;
+try { bgm.pause(); } catch (e) {}          // never let the porcodio track play on the puzzle site
 muteBtn.textContent = muted ? "🔇" : "🔊";
 
 // Music begins only after "Reconnect" is clicked (a user gesture), then loops.
@@ -1536,7 +1537,7 @@ function startCutscene() {
   cs.root.classList.add("show");
   cs.black.classList.remove("clear");          // start fully black
   cs.active = false;                            // no advancing during the intro black
-  try { bgm.volume = 0.12; } catch (e) {}      // duck the porcodio music under the dialogue
+  try { bgm.pause(); bgm.currentTime = 0; } catch (e) {}   // porcodio track stays SILENT (music lives only in game.html)
 
   // black screen + plane take-off sound
   playSnd("sndSeatbelt");
