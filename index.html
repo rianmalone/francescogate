@@ -1539,8 +1539,9 @@ function startCutscene() {
   cs.active = false;                            // no advancing during the intro black
   try { bgm.pause(); bgm.currentTime = 0; } catch (e) {}   // porcodio track stays SILENT (music lives only in game.html)
 
-  // black screen + plane take-off sound
-  playSnd("sndSeatbelt");
+  // black screen — no take-off SFX (assets/seatbelt.mp3 is a "porco dio" clip,
+  // not a plane sound, so it stays silent). Drop in a real take-off mp3 and
+  // re-add playSnd("sndSeatbelt") here if you want the sound back.
   setTimeout(() => {
     cs.black.classList.add("clear");            // fade cabin in
     cs.index = 0; cs.active = true;
