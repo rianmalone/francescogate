@@ -1465,8 +1465,11 @@ const Gate4 = (() => {
   const msg = document.getElementById("decodeMsg");
   const ANSWER = "morgan";
   const norm = s => (s || "").toLowerCase().replace(/[^a-z]/g, "");
+  let done = false;
   function check() {
+    if (done) return;                       // already solved — don't re-fire the cutscene
     if (norm(input.value) === ANSWER) {
+      done = true; input.blur();            // stop further Enter presses from re-triggering
       msg.textContent = "✓ decoded"; msg.className = "riddle-msg ok";
       startCutscene();
     } else {
@@ -1516,6 +1519,8 @@ const cs = {
 };
 
 function startCutscene() {
+  if (cs.started) return;                    // never restart once it's begun
+  cs.started = true;
   cs.root = document.getElementById("cutscene");
   cs.black = document.getElementById("csBlack");
   cs.bg = document.getElementById("csBg");
