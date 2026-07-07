@@ -7,10 +7,19 @@
 <script>
 (function () {
   try {
+    // "?desktop" forces the computer version on a phone (persists via storage);
+    // "?mobile" undoes it. Normal visitors are unaffected.
+    var qs = location.search || "";
+    var forceDesktop = /[?&]desktop\b/i.test(qs);
+    try {
+      if (/[?&]mobile\b/i.test(qs)) localStorage.removeItem("fg_forceDesktop");
+      else if (forceDesktop) localStorage.setItem("fg_forceDesktop", "1");
+      forceDesktop = localStorage.getItem("fg_forceDesktop") === "1";
+    } catch (e) {}
     var ua = navigator.userAgent || "";
     var mobUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Silk|Kindle/i.test(ua);
     var coarse = window.matchMedia && window.matchMedia("(pointer: coarse) and (hover: none)").matches;
-    if (mobUA || coarse) { document.documentElement.classList.add("is-mobile"); location.replace("mobile.html"); }
+    if ((mobUA || coarse) && !forceDesktop) { document.documentElement.classList.add("is-mobile"); location.replace("mobile.html"); }
   } catch (e) {}
 })();
 </script>
@@ -482,6 +491,7 @@
   .atlas-hintbtn.spent { opacity: .45; cursor: default; }
   .atlas-hint { min-height: 0; color: #ffd97a; font-size: 0.9rem; line-height: 1.45; max-width: 600px; text-align: center; }
   .atlas-hint.show { min-height: 1.2em; }
+  .atlas-hint-it { display: block; margin-top: 4px; color: #9c8a55; font-style: italic; font-size: 0.82rem; }
   .atlas-q {
     background: rgba(0,20,8,0.55); border: 1px solid #164a2c;
     border-radius: 10px; padding: 16px 18px; max-width: 640px; width: 100%;
@@ -1890,116 +1900,116 @@ const Atlas = (() => {
   // Every question carries a `lang` badge + a `hint`.
   const POOL = [
     // ============================ PYTHON (20) ============================
-    { lang:"python", type:"mc", q:'What does <code>len("Revolut")</code> return?', options:["6","7","8","\"Revolut\""], answer:"7", hint:"Count every character, including the last one." },
-    { lang:"python", type:"tf", q:"In Python, indentation is part of the syntax, not just style.", answer:true, hint:"Blocks are defined by whitespace — no curly braces." },
-    { lang:"python", type:"blank", q:"Fill the blank so it prints the text:", code:'_____("Hello Atlas")', answer:["print"], hint:"The built-in that writes to stdout." },
-    { lang:"python", type:"multi", q:"Select ALL valid Python built-in types.", options:["list","dict","int","arrayList"], answer:["list","dict","int"], hint:"One of these is Java's naming style, not Python's." },
-    { lang:"python", type:"mc", q:"What is the value of this expression?", code:"2 ** 3", options:["6","8","9","5"], answer:"8", hint:"** is exponentiation, not multiplication." },
-    { lang:"python", type:"order", q:"Arrange the tokens into a valid loop header.", tokens:["for","i","in","range(5):"], answer:["for","i","in","range(5):"], hint:"for <var> in <iterable>:" },
-    { lang:"python", type:"blank", q:"Complete add() so it returns the sum of a and b:", code:"def add(a, b):\n    return a ___ b", answer:["+"], hint:"Basic arithmetic operator." },
-    { lang:"python", type:"tf", q:"In Python, <code>==</code> assigns a value to a variable.", answer:false, hint:"== compares. A single = assigns." },
-    { lang:"python", type:"multi", q:"Select ALL Python keywords.", options:["for","while","function","elif"], answer:["for","while","elif"], hint:"Python spells 'else if' as one word, and doesn't use 'function'." },
-    { lang:"python", type:"mc", q:"What is the result?", code:'"ab" * 2', options:['"abab"','"ab2"','"aabb"','Error'], answer:'"abab"', hint:"Multiplying a string repeats it." },
-    { lang:"python", type:"mc", q:"What does this print?", code:"print(type([]).__name__)", options:["list","array","tuple","set"], answer:"list", hint:"[] is the literal for one specific collection." },
-    { lang:"python", type:"blank", q:"Make a list comprehension of squares 0..4:", code:"[x___2 for x in range(5)]", answer:["**"], hint:"Exponent operator again." },
-    { lang:"python", type:"tf", q:"Tuples in Python are immutable.", answer:true, hint:"Once created you cannot change a tuple's items." },
-    { lang:"python", type:"mc", q:"Result of <code>3 // 2</code>?", options:["1","1.5","2","0"], answer:"1", hint:"// is floor (integer) division." },
-    { lang:"python", type:"blank", q:"Fill in to open a file for reading:", code:'open("f.txt", "___")', answer:["r"], hint:"The mode letter for 'read'." },
-    { lang:"python", type:"mc", q:"What does <code>bool([])</code> return?", options:["False","True","None","Error"], answer:"False", hint:"An empty collection is 'falsy'." },
-    { lang:"python", type:"multi", q:"Which are valid ways to make a dict?", options:["dict()","{}","{ 'a': 1 }","[ 'a', 1 ]"], answer:["dict()","{}","{ 'a': 1 }"], hint:"Square brackets build a list, not a dict." },
-    { lang:"python", type:"tf", q:"<code>None</code> is the same as <code>0</code> in Python.", answer:false, hint:"None is its own singleton — absence of a value." },
-    { lang:"python", type:"mc", q:"What prefixes an f-string?", code:'x = 5\n_"value is {x}"', options:["f","s","r","b"], answer:"f", hint:"The letter stands for 'formatted'." },
-    { lang:"python", type:"mc", q:"What does <code>list(range(1,4))</code> give?", options:["[1, 2, 3]","[1, 2, 3, 4]","[0, 1, 2, 3]","[1, 4]"], answer:"[1, 2, 3]", hint:"range stops BEFORE the second number." },
+    { lang:"python", type:"mc", q:'What does <code>len("Revolut")</code> return?', options:["6","7","8","\"Revolut\""], answer:"7", hint:"Count every character, including the last one.", hintIt:"Conta ogni carattere, incluso l'ultimo." },
+    { lang:"python", type:"tf", q:"In Python, indentation is part of the syntax, not just style.", answer:true, hint:"Blocks are defined by whitespace — no curly braces.", hintIt:"I blocchi sono definiti dagli spazi — niente parentesi graffe." },
+    { lang:"python", type:"blank", q:"Fill the blank so it prints the text:", code:'_____("Hello Atlas")', answer:["print"], hint:"The built-in that writes to stdout.", hintIt:"La funzione integrata che scrive su stdout." },
+    { lang:"python", type:"multi", q:"Select ALL valid Python built-in types.", options:["list","dict","int","arrayList"], answer:["list","dict","int"], hint:"One of these is Java's naming style, not Python's.", hintIt:"Uno di questi usa lo stile di denominazione di Java, non di Python." },
+    { lang:"python", type:"mc", q:"What is the value of this expression?", code:"2 ** 3", options:["6","8","9","5"], answer:"8", hint:"** is exponentiation, not multiplication.", hintIt:"** è l'elevamento a potenza, non la moltiplicazione." },
+    { lang:"python", type:"order", q:"Arrange the tokens into a valid loop header.", tokens:["for","i","in","range(5):"], answer:["for","i","in","range(5):"], hint:"for <var> in <iterable>:", hintIt:"for <var> in <iterabile>:" },
+    { lang:"python", type:"blank", q:"Complete add() so it returns the sum of a and b:", code:"def add(a, b):\n    return a ___ b", answer:["+"], hint:"Basic arithmetic operator.", hintIt:"Un semplice operatore aritmetico." },
+    { lang:"python", type:"tf", q:"In Python, <code>==</code> assigns a value to a variable.", answer:false, hint:"== compares. A single = assigns.", hintIt:"== confronta. Un singolo = assegna." },
+    { lang:"python", type:"multi", q:"Select ALL Python keywords.", options:["for","while","function","elif"], answer:["for","while","elif"], hint:"Python spells 'else if' as one word, and doesn't use 'function'.", hintIt:"Python scrive 'else if' come una parola sola e non usa 'function'." },
+    { lang:"python", type:"mc", q:"What is the result?", code:'"ab" * 2', options:['"abab"','"ab2"','"aabb"','Error'], answer:'"abab"', hint:"Multiplying a string repeats it.", hintIt:"Moltiplicare una stringa la ripete." },
+    { lang:"python", type:"mc", q:"What does this print?", code:"print(type([]).__name__)", options:["list","array","tuple","set"], answer:"list", hint:"[] is the literal for one specific collection.", hintIt:"[] è il letterale di una collezione ben precisa." },
+    { lang:"python", type:"blank", q:"Make a list comprehension of squares 0..4:", code:"[x___2 for x in range(5)]", answer:["**"], hint:"Exponent operator again.", hintIt:"Di nuovo l'operatore di potenza." },
+    { lang:"python", type:"tf", q:"Tuples in Python are immutable.", answer:true, hint:"Once created you cannot change a tuple's items.", hintIt:"Una volta creata, non puoi modificare gli elementi di una tupla." },
+    { lang:"python", type:"mc", q:"Result of <code>3 // 2</code>?", options:["1","1.5","2","0"], answer:"1", hint:"// is floor (integer) division.", hintIt:"// è la divisione intera (per difetto)." },
+    { lang:"python", type:"blank", q:"Fill in to open a file for reading:", code:'open("f.txt", "___")', answer:["r"], hint:"The mode letter for 'read'.", hintIt:"La lettera della modalità 'lettura'." },
+    { lang:"python", type:"mc", q:"What does <code>bool([])</code> return?", options:["False","True","None","Error"], answer:"False", hint:"An empty collection is 'falsy'.", hintIt:"Una collezione vuota è 'falsy'." },
+    { lang:"python", type:"multi", q:"Which are valid ways to make a dict?", options:["dict()","{}","{ 'a': 1 }","[ 'a', 1 ]"], answer:["dict()","{}","{ 'a': 1 }"], hint:"Square brackets build a list, not a dict.", hintIt:"Le parentesi quadre creano una lista, non un dict." },
+    { lang:"python", type:"tf", q:"<code>None</code> is the same as <code>0</code> in Python.", answer:false, hint:"None is its own singleton — absence of a value.", hintIt:"None è un singleton a sé — l'assenza di un valore." },
+    { lang:"python", type:"mc", q:"What prefixes an f-string?", code:'x = 5\n_"value is {x}"', options:["f","s","r","b"], answer:"f", hint:"The letter stands for 'formatted'.", hintIt:"La lettera sta per 'formatted' (formattata)." },
+    { lang:"python", type:"mc", q:"What does <code>list(range(1,4))</code> give?", options:["[1, 2, 3]","[1, 2, 3, 4]","[0, 1, 2, 3]","[1, 4]"], answer:"[1, 2, 3]", hint:"range stops BEFORE the second number.", hintIt:"range si ferma PRIMA del secondo numero." },
 
     // ========================== JAVASCRIPT (20) =========================
-    { lang:"javascript", type:"mc", q:"What does <code>typeof null</code> return?", options:['"object"','"null"','"undefined"','"number"'], answer:'"object"', hint:"A famous, long-standing JS quirk." },
-    { lang:"javascript", type:"tf", q:"<code>const</code> prevents reassigning the variable binding.", answer:true, hint:"You can still mutate an object it points to, but not rebind it." },
-    { lang:"javascript", type:"mc", q:"Result of <code>0.1 + 0.2 === 0.3</code>?", options:["false","true","NaN","Error"], answer:"false", hint:"Floating-point rounding — the sum is 0.30000000000000004." },
-    { lang:"javascript", type:"blank", q:"Log a value to the browser console:", code:"console.___('hi')", answer:["log"], hint:"The most common console method." },
-    { lang:"javascript", type:"multi", q:"Select ALL falsy values in JS.", options:["0","''","null","'0'"], answer:["0","''","null"], hint:"A non-empty string — even '0' — is truthy." },
-    { lang:"javascript", type:"mc", q:"What is <code>[1,2,3].length</code>?", options:["3","2","4","undefined"], answer:"3", hint:"Just count the elements." },
-    { lang:"javascript", type:"order", q:"Order the tokens into an arrow function.", tokens:["const","f","=","() => 1"], answer:["const","f","=","() => 1"], hint:"const name = params => body" },
-    { lang:"javascript", type:"tf", q:"<code>==</code> does type coercion; <code>===</code> does not.", answer:true, hint:"Triple-equals is the strict, no-coercion comparison." },
-    { lang:"javascript", type:"mc", q:"Result of <code>'5' + 3</code>?", options:['"53"',"8","15","NaN"], answer:'"53"', hint:"+ with a string concatenates rather than adds." },
-    { lang:"javascript", type:"mc", q:"Result of <code>'5' - 3</code>?", options:["2",'"53"',"NaN","-2"], answer:"2", hint:"Unlike +, the - operator coerces strings to numbers." },
-    { lang:"javascript", type:"blank", q:"Turn a JS object into a JSON string:", code:"JSON.___(obj)", answer:["stringify"], hint:"The opposite of JSON.parse." },
-    { lang:"javascript", type:"multi", q:"Which declare a variable?", options:["let","var","const","def"], answer:["let","var","const"], hint:"'def' belongs to Python." },
-    { lang:"javascript", type:"tf", q:"Arrow functions have their own <code>this</code> binding.", answer:false, hint:"They inherit `this` from the enclosing scope." },
-    { lang:"javascript", type:"mc", q:"What does <code>Array.isArray([])</code> return?", options:["true","false","undefined","'object'"], answer:"true", hint:"[] really is an array." },
-    { lang:"javascript", type:"blank", q:"Add an element to the end of arr:", code:"arr.___(4)", answer:["push"], hint:"Opposite of pop." },
-    { lang:"javascript", type:"mc", q:"Result of <code>Boolean(NaN)</code>?", options:["false","true","NaN","0"], answer:"false", hint:"NaN is falsy." },
-    { lang:"javascript", type:"tf", q:"<code>let</code> is block-scoped.", answer:true, hint:"Unlike var, it's confined to its { } block." },
-    { lang:"javascript", type:"mc", q:"What does <code>[10,1,2].sort()</code> give?", options:["[1, 10, 2]","[1, 2, 10]","[10, 2, 1]","[2, 1, 10]"], answer:"[1, 10, 2]", hint:"Default sort compares as STRINGS, so '10' < '2'." },
-    { lang:"javascript", type:"blank", q:"Wait for a promise inside an async fn:", code:"const v = ___ fetch(u)", answer:["await"], hint:"Pairs with the `async` keyword." },
-    { lang:"javascript", type:"mc", q:"Result of <code>typeof undefined</code>?", options:['"undefined"','"object"','"null"','"none"'], answer:'"undefined"', hint:"This one is NOT the buggy case." },
+    { lang:"javascript", type:"mc", q:"What does <code>typeof null</code> return?", options:['"object"','"null"','"undefined"','"number"'], answer:'"object"', hint:"A famous, long-standing JS quirk.", hintIt:"Una famosa e storica stranezza di JS." },
+    { lang:"javascript", type:"tf", q:"<code>const</code> prevents reassigning the variable binding.", answer:true, hint:"You can still mutate an object it points to, but not rebind it.", hintIt:"Puoi comunque modificare l'oggetto a cui punta, ma non riassegnarlo." },
+    { lang:"javascript", type:"mc", q:"Result of <code>0.1 + 0.2 === 0.3</code>?", options:["false","true","NaN","Error"], answer:"false", hint:"Floating-point rounding — the sum is 0.30000000000000004.", hintIt:"Arrotondamento in virgola mobile — la somma fa 0.30000000000000004." },
+    { lang:"javascript", type:"blank", q:"Log a value to the browser console:", code:"console.___('hi')", answer:["log"], hint:"The most common console method.", hintIt:"Il metodo di console più comune." },
+    { lang:"javascript", type:"multi", q:"Select ALL falsy values in JS.", options:["0","''","null","'0'"], answer:["0","''","null"], hint:"A non-empty string — even '0' — is truthy.", hintIt:"Una stringa non vuota — anche '0' — è truthy." },
+    { lang:"javascript", type:"mc", q:"What is <code>[1,2,3].length</code>?", options:["3","2","4","undefined"], answer:"3", hint:"Just count the elements.", hintIt:"Basta contare gli elementi." },
+    { lang:"javascript", type:"order", q:"Order the tokens into an arrow function.", tokens:["const","f","=","() => 1"], answer:["const","f","=","() => 1"], hint:"const name = params => body", hintIt:"const nome = parametri => corpo" },
+    { lang:"javascript", type:"tf", q:"<code>==</code> does type coercion; <code>===</code> does not.", answer:true, hint:"Triple-equals is the strict, no-coercion comparison.", hintIt:"Il triplo uguale è il confronto stretto, senza coercizione." },
+    { lang:"javascript", type:"mc", q:"Result of <code>'5' + 3</code>?", options:['"53"',"8","15","NaN"], answer:'"53"', hint:"+ with a string concatenates rather than adds.", hintIt:"+ con una stringa concatena invece di sommare." },
+    { lang:"javascript", type:"mc", q:"Result of <code>'5' - 3</code>?", options:["2",'"53"',"NaN","-2"], answer:"2", hint:"Unlike +, the - operator coerces strings to numbers.", hintIt:"A differenza di +, l'operatore - converte le stringhe in numeri." },
+    { lang:"javascript", type:"blank", q:"Turn a JS object into a JSON string:", code:"JSON.___(obj)", answer:["stringify"], hint:"The opposite of JSON.parse.", hintIt:"Il contrario di JSON.parse." },
+    { lang:"javascript", type:"multi", q:"Which declare a variable?", options:["let","var","const","def"], answer:["let","var","const"], hint:"'def' belongs to Python.", hintIt:"'def' appartiene a Python." },
+    { lang:"javascript", type:"tf", q:"Arrow functions have their own <code>this</code> binding.", answer:false, hint:"They inherit `this` from the enclosing scope.", hintIt:"Ereditano `this` dallo scope circostante." },
+    { lang:"javascript", type:"mc", q:"What does <code>Array.isArray([])</code> return?", options:["true","false","undefined","'object'"], answer:"true", hint:"[] really is an array.", hintIt:"[] è davvero un array." },
+    { lang:"javascript", type:"blank", q:"Add an element to the end of arr:", code:"arr.___(4)", answer:["push"], hint:"Opposite of pop.", hintIt:"Il contrario di pop." },
+    { lang:"javascript", type:"mc", q:"Result of <code>Boolean(NaN)</code>?", options:["false","true","NaN","0"], answer:"false", hint:"NaN is falsy.", hintIt:"NaN è falsy." },
+    { lang:"javascript", type:"tf", q:"<code>let</code> is block-scoped.", answer:true, hint:"Unlike var, it's confined to its { } block.", hintIt:"A differenza di var, è confinato al suo blocco { }." },
+    { lang:"javascript", type:"mc", q:"What does <code>[10,1,2].sort()</code> give?", options:["[1, 10, 2]","[1, 2, 10]","[10, 2, 1]","[2, 1, 10]"], answer:"[1, 10, 2]", hint:"Default sort compares as STRINGS, so '10' < '2'.", hintIt:"L'ordinamento predefinito confronta come STRINGHE, quindi '10' < '2'." },
+    { lang:"javascript", type:"blank", q:"Wait for a promise inside an async fn:", code:"const v = ___ fetch(u)", answer:["await"], hint:"Pairs with the `async` keyword.", hintIt:"Si abbina alla parola chiave `async`." },
+    { lang:"javascript", type:"mc", q:"Result of <code>typeof undefined</code>?", options:['"undefined"','"object"','"null"','"none"'], answer:'"undefined"', hint:"This one is NOT the buggy case.", hintIt:"Questo NON è il caso col bug." },
 
     // ========================== TYPESCRIPT (17) =========================
-    { lang:"typescript", type:"mc", q:"Which type means 'any value, opt out of checking'?", options:["any","unknown","never","void"], answer:"any", hint:"The escape hatch you're told to avoid." },
-    { lang:"typescript", type:"tf", q:"TypeScript types are erased at runtime (they don't exist in the JS output).", answer:true, hint:"They're compile-time only — the emitted JS has no types." },
-    { lang:"typescript", type:"blank", q:"Annotate x as a number:", code:"let x: ___ = 5", answer:["number"], hint:"Lowercase primitive type name." },
-    { lang:"typescript", type:"mc", q:"What does the <code>?</code> in <code>name?: string</code> mean?", options:["optional property","nullable only","readonly","private"], answer:"optional property", hint:"The property may be absent." },
-    { lang:"typescript", type:"multi", q:"Select ALL primitive TS types.", options:["string","number","boolean","Array"], answer:["string","number","boolean"], hint:"Array is a generic object type, not a primitive." },
-    { lang:"typescript", type:"mc", q:"Which keyword defines a reusable object shape?", options:["interface","struct","record","shape"], answer:"interface", hint:"Also achievable with `type`, but this is the classic keyword." },
-    { lang:"typescript", type:"tf", q:"<code>unknown</code> is safer than <code>any</code> because you must narrow it before use.", answer:true, hint:"unknown forces a check; any lets anything through." },
-    { lang:"typescript", type:"blank", q:"Make T a type parameter (generic):", code:"function id<___>(x: T): T { return x }", answer:["T"], hint:"Just the single letter used everywhere else in the signature." },
-    { lang:"typescript", type:"mc", q:"What does <code>string | number</code> describe?", options:["a union type","an intersection","a tuple","a generic"], answer:"a union type", hint:"The | means 'either/or'." },
-    { lang:"typescript", type:"mc", q:"What does <code>as</code> do in <code>x as string</code>?", options:["type assertion","cast at runtime","rename","import"], answer:"type assertion", hint:"You're telling the compiler the type; nothing happens at runtime." },
-    { lang:"typescript", type:"tf", q:"An <code>enum</code> in TS DOES emit real code at runtime.", answer:true, hint:"Unlike types, a normal (non-const) enum produces a JS object." },
-    { lang:"typescript", type:"blank", q:"Type an array of numbers:", code:"let ns: number___ = []", answer:["[]"], hint:"Append the same brackets you'd use to index it." },
-    { lang:"typescript", type:"mc", q:"What does <code>readonly</code> do on a property?", options:["blocks reassignment","hides it","makes it optional","freezes the object"], answer:"blocks reassignment", hint:"You can read it but not write it after init." },
-    { lang:"typescript", type:"multi", q:"Which are valid ways to declare a type?", options:["type Foo = ...","interface Foo {}","typedef Foo","class Foo {}"], answer:["type Foo = ...","interface Foo {}","class Foo {}"], hint:"'typedef' is a C thing." },
-    { lang:"typescript", type:"tf", q:"<code>never</code> is the type of a function that never returns.", answer:true, hint:"e.g. one that always throws or loops forever." },
-    { lang:"typescript", type:"mc", q:"<code>type A = string & { brand: 'x' }</code> uses which operator?", options:["intersection","union","optional","spread"], answer:"intersection", hint:"& combines types into one that satisfies both." },
-    { lang:"typescript", type:"blank", q:"Mark a param optional:", code:"function f(a___: number) {}", answer:["?"], hint:"A single punctuation mark after the name." },
+    { lang:"typescript", type:"mc", q:"Which type means 'any value, opt out of checking'?", options:["any","unknown","never","void"], answer:"any", hint:"The escape hatch you're told to avoid.", hintIt:"La via di fuga che ti dicono di evitare." },
+    { lang:"typescript", type:"tf", q:"TypeScript types are erased at runtime (they don't exist in the JS output).", answer:true, hint:"They're compile-time only — the emitted JS has no types.", hintIt:"Esistono solo in compilazione — il JS prodotto non ha tipi." },
+    { lang:"typescript", type:"blank", q:"Annotate x as a number:", code:"let x: ___ = 5", answer:["number"], hint:"Lowercase primitive type name.", hintIt:"Il nome del tipo primitivo, in minuscolo." },
+    { lang:"typescript", type:"mc", q:"What does the <code>?</code> in <code>name?: string</code> mean?", options:["optional property","nullable only","readonly","private"], answer:"optional property", hint:"The property may be absent.", hintIt:"La proprietà può essere assente." },
+    { lang:"typescript", type:"multi", q:"Select ALL primitive TS types.", options:["string","number","boolean","Array"], answer:["string","number","boolean"], hint:"Array is a generic object type, not a primitive.", hintIt:"Array è un tipo oggetto generico, non un primitivo." },
+    { lang:"typescript", type:"mc", q:"Which keyword defines a reusable object shape?", options:["interface","struct","record","shape"], answer:"interface", hint:"Also achievable with `type`, but this is the classic keyword.", hintIt:"Si può fare anche con `type`, ma questa è la parola chiave classica." },
+    { lang:"typescript", type:"tf", q:"<code>unknown</code> is safer than <code>any</code> because you must narrow it before use.", answer:true, hint:"unknown forces a check; any lets anything through.", hintIt:"unknown obbliga a un controllo; any lascia passare tutto." },
+    { lang:"typescript", type:"blank", q:"Make T a type parameter (generic):", code:"function id<___>(x: T): T { return x }", answer:["T"], hint:"Just the single letter used everywhere else in the signature.", hintIt:"Solo la singola lettera usata ovunque nella firma." },
+    { lang:"typescript", type:"mc", q:"What does <code>string | number</code> describe?", options:["a union type","an intersection","a tuple","a generic"], answer:"a union type", hint:"The | means 'either/or'.", hintIt:"Il | significa 'uno o l'altro'." },
+    { lang:"typescript", type:"mc", q:"What does <code>as</code> do in <code>x as string</code>?", options:["type assertion","cast at runtime","rename","import"], answer:"type assertion", hint:"You're telling the compiler the type; nothing happens at runtime.", hintIt:"Stai dicendo il tipo al compilatore; a runtime non succede nulla." },
+    { lang:"typescript", type:"tf", q:"An <code>enum</code> in TS DOES emit real code at runtime.", answer:true, hint:"Unlike types, a normal (non-const) enum produces a JS object.", hintIt:"A differenza dei tipi, un enum normale (non const) produce un oggetto JS." },
+    { lang:"typescript", type:"blank", q:"Type an array of numbers:", code:"let ns: number___ = []", answer:["[]"], hint:"Append the same brackets you'd use to index it.", hintIt:"Aggiungi le stesse parentesi che useresti per indicizzarlo." },
+    { lang:"typescript", type:"mc", q:"What does <code>readonly</code> do on a property?", options:["blocks reassignment","hides it","makes it optional","freezes the object"], answer:"blocks reassignment", hint:"You can read it but not write it after init.", hintIt:"Puoi leggerla ma non scriverla dopo l'inizializzazione." },
+    { lang:"typescript", type:"multi", q:"Which are valid ways to declare a type?", options:["type Foo = ...","interface Foo {}","typedef Foo","class Foo {}"], answer:["type Foo = ...","interface Foo {}","class Foo {}"], hint:"'typedef' is a C thing.", hintIt:"'typedef' è roba del C." },
+    { lang:"typescript", type:"tf", q:"<code>never</code> is the type of a function that never returns.", answer:true, hint:"e.g. one that always throws or loops forever.", hintIt:"es. una che lancia sempre un'eccezione o va in loop infinito." },
+    { lang:"typescript", type:"mc", q:"<code>type A = string & { brand: 'x' }</code> uses which operator?", options:["intersection","union","optional","spread"], answer:"intersection", hint:"& combines types into one that satisfies both.", hintIt:"& combina i tipi in uno che li soddisfa entrambi." },
+    { lang:"typescript", type:"blank", q:"Mark a param optional:", code:"function f(a___: number) {}", answer:["?"], hint:"A single punctuation mark after the name.", hintIt:"Un solo segno di punteggiatura dopo il nome." },
 
     // ============================== SQL (16) ============================
-    { lang:"sql", type:"blank", q:"Fetch every column from users:", code:"SELECT ___ FROM users;", answer:["*"], hint:"The wildcard for 'all columns'." },
-    { lang:"sql", type:"mc", q:"Which clause filters rows?", options:["WHERE","HAVING","GROUP BY","ORDER BY"], answer:"WHERE", hint:"It restricts which rows come back (before grouping)." },
-    { lang:"sql", type:"tf", q:"<code>NULL = NULL</code> evaluates to TRUE in SQL.", answer:false, hint:"NULL is 'unknown'; use IS NULL instead." },
-    { lang:"sql", type:"mc", q:"Which keyword removes duplicate rows?", options:["DISTINCT","UNIQUE","DEDUP","ONLY"], answer:"DISTINCT", hint:"Goes right after SELECT." },
-    { lang:"sql", type:"order", q:"Order these clauses correctly.", tokens:["SELECT","FROM","WHERE","ORDER BY"], answer:["SELECT","FROM","WHERE","ORDER BY"], hint:"Pick columns, then table, then filter, then sort." },
-    { lang:"sql", type:"mc", q:"Which JOIN keeps unmatched LEFT rows?", options:["LEFT JOIN","INNER JOIN","CROSS JOIN","RIGHT JOIN"], answer:"LEFT JOIN", hint:"The name tells you which side is preserved." },
-    { lang:"sql", type:"blank", q:"Count rows in orders:", code:"SELECT ___(*) FROM orders;", answer:["count"], hint:"The aggregate that tallies rows." },
-    { lang:"sql", type:"mc", q:"Which clause filters AFTER a GROUP BY aggregate?", options:["HAVING","WHERE","FILTER","ON"], answer:"HAVING", hint:"WHERE runs before grouping; this one runs after." },
-    { lang:"sql", type:"tf", q:"<code>DELETE FROM t;</code> with no WHERE removes every row.", answer:true, hint:"No filter means all rows match." },
-    { lang:"sql", type:"blank", q:"Sort results newest-first by created_at:", code:"ORDER BY created_at ___;", answer:["desc"], hint:"Descending order keyword." },
-    { lang:"sql", type:"mc", q:"What does <code>COUNT(DISTINCT user_id)</code> return?", options:["number of unique users","total rows","NULL count","first user"], answer:"number of unique users", hint:"DISTINCT drops repeats before counting." },
-    { lang:"sql", type:"multi", q:"Select ALL aggregate functions.", options:["SUM","AVG","MAX","JOIN"], answer:["SUM","AVG","MAX"], hint:"JOIN combines tables — it doesn't aggregate." },
-    { lang:"sql", type:"blank", q:"Add a new row into users:", code:"___ INTO users (id) VALUES (1);", answer:["insert"], hint:"The statement that creates rows." },
-    { lang:"sql", type:"mc", q:"Which keyword updates existing rows?", options:["UPDATE","ALTER","MODIFY","SET"], answer:"UPDATE", hint:"ALTER changes schema; this changes data." },
-    { lang:"sql", type:"tf", q:"<code>GROUP BY</code> collapses rows that share a value into one group.", answer:true, hint:"That's exactly what enables aggregates per group." },
-    { lang:"sql", type:"mc", q:"Which limits results to 10 rows (Postgres/MySQL)?", options:["LIMIT 10","TOP 10","ROWNUM 10","FIRST 10"], answer:"LIMIT 10", hint:"TOP is the SQL Server spelling; this is the other one." },
+    { lang:"sql", type:"blank", q:"Fetch every column from users:", code:"SELECT ___ FROM users;", answer:["*"], hint:"The wildcard for 'all columns'.", hintIt:"Il carattere jolly per 'tutte le colonne'." },
+    { lang:"sql", type:"mc", q:"Which clause filters rows?", options:["WHERE","HAVING","GROUP BY","ORDER BY"], answer:"WHERE", hint:"It restricts which rows come back (before grouping).", hintIt:"Limita quali righe tornano (prima del raggruppamento)." },
+    { lang:"sql", type:"tf", q:"<code>NULL = NULL</code> evaluates to TRUE in SQL.", answer:false, hint:"NULL is 'unknown'; use IS NULL instead.", hintIt:"NULL è 'sconosciuto'; usa invece IS NULL." },
+    { lang:"sql", type:"mc", q:"Which keyword removes duplicate rows?", options:["DISTINCT","UNIQUE","DEDUP","ONLY"], answer:"DISTINCT", hint:"Goes right after SELECT.", hintIt:"Va subito dopo SELECT." },
+    { lang:"sql", type:"order", q:"Order these clauses correctly.", tokens:["SELECT","FROM","WHERE","ORDER BY"], answer:["SELECT","FROM","WHERE","ORDER BY"], hint:"Pick columns, then table, then filter, then sort.", hintIt:"Prima le colonne, poi la tabella, poi il filtro, poi l'ordinamento." },
+    { lang:"sql", type:"mc", q:"Which JOIN keeps unmatched LEFT rows?", options:["LEFT JOIN","INNER JOIN","CROSS JOIN","RIGHT JOIN"], answer:"LEFT JOIN", hint:"The name tells you which side is preserved.", hintIt:"Il nome ti dice quale lato viene conservato." },
+    { lang:"sql", type:"blank", q:"Count rows in orders:", code:"SELECT ___(*) FROM orders;", answer:["count"], hint:"The aggregate that tallies rows.", hintIt:"La funzione di aggregazione che conta le righe." },
+    { lang:"sql", type:"mc", q:"Which clause filters AFTER a GROUP BY aggregate?", options:["HAVING","WHERE","FILTER","ON"], answer:"HAVING", hint:"WHERE runs before grouping; this one runs after.", hintIt:"WHERE agisce prima del raggruppamento; questa agisce dopo." },
+    { lang:"sql", type:"tf", q:"<code>DELETE FROM t;</code> with no WHERE removes every row.", answer:true, hint:"No filter means all rows match.", hintIt:"Nessun filtro significa che tutte le righe corrispondono." },
+    { lang:"sql", type:"blank", q:"Sort results newest-first by created_at:", code:"ORDER BY created_at ___;", answer:["desc"], hint:"Descending order keyword.", hintIt:"La parola chiave per l'ordine decrescente." },
+    { lang:"sql", type:"mc", q:"What does <code>COUNT(DISTINCT user_id)</code> return?", options:["number of unique users","total rows","NULL count","first user"], answer:"number of unique users", hint:"DISTINCT drops repeats before counting.", hintIt:"DISTINCT elimina i duplicati prima di contare." },
+    { lang:"sql", type:"multi", q:"Select ALL aggregate functions.", options:["SUM","AVG","MAX","JOIN"], answer:["SUM","AVG","MAX"], hint:"JOIN combines tables — it doesn't aggregate.", hintIt:"JOIN unisce le tabelle — non aggrega." },
+    { lang:"sql", type:"blank", q:"Add a new row into users:", code:"___ INTO users (id) VALUES (1);", answer:["insert"], hint:"The statement that creates rows.", hintIt:"L'istruzione che crea nuove righe." },
+    { lang:"sql", type:"mc", q:"Which keyword updates existing rows?", options:["UPDATE","ALTER","MODIFY","SET"], answer:"UPDATE", hint:"ALTER changes schema; this changes data.", hintIt:"ALTER cambia lo schema; questa cambia i dati." },
+    { lang:"sql", type:"tf", q:"<code>GROUP BY</code> collapses rows that share a value into one group.", answer:true, hint:"That's exactly what enables aggregates per group.", hintIt:"È proprio ciò che abilita le aggregazioni per gruppo." },
+    { lang:"sql", type:"mc", q:"Which limits results to 10 rows (Postgres/MySQL)?", options:["LIMIT 10","TOP 10","ROWNUM 10","FIRST 10"], answer:"LIMIT 10", hint:"TOP is the SQL Server spelling; this is the other one.", hintIt:"TOP è la sintassi di SQL Server; questa è l'altra." },
 
     // ============================= JAVA (14) ============================
-    { lang:"java", type:"mc", q:"Which is Java's entry-point method signature?", options:["public static void main(String[] args)","def main():","function main()","static main(args)"], answer:"public static void main(String[] args)", hint:"public, static, void, and a String array." },
-    { lang:"java", type:"tf", q:"In Java every variable must have a declared type.", answer:true, hint:"It's statically typed (though `var` can infer locally)." },
-    { lang:"java", type:"blank", q:"Print a line to stdout:", code:'System.out.___("hi");', answer:["println"], hint:"'print line' — the ln version." },
-    { lang:"java", type:"mc", q:"What is <code>int</code>?", options:["a primitive","an object","an interface","a wrapper class"], answer:"a primitive", hint:"Its object wrapper is Integer, but int itself is not one." },
-    { lang:"java", type:"multi", q:"Select ALL Java access modifiers.", options:["public","private","protected","internal"], answer:["public","private","protected"], hint:"'internal' is a C# modifier, not Java." },
-    { lang:"java", type:"tf", q:"Java is compiled to bytecode that runs on the JVM.", answer:true, hint:"The .class files run on the virtual machine." },
-    { lang:"java", type:"mc", q:"Which keyword creates an object?", options:["new","malloc","make","alloc"], answer:"new", hint:"You call it right before the constructor." },
-    { lang:"java", type:"blank", q:"Declare an integer variable count = 0:", code:"___ count = 0;", answer:["int"], hint:"The 32-bit primitive integer type." },
-    { lang:"java", type:"mc", q:"What does <code>\"a\".equals(\"a\")</code> return?", options:["true","false","0","null"], answer:"true", hint:".equals compares content; use it instead of == for strings." },
-    { lang:"java", type:"tf", q:"<code>==</code> on two String objects compares references, not content.", answer:true, hint:"That's why you reach for .equals()." },
-    { lang:"java", type:"mc", q:"Which collection type disallows duplicates?", options:["Set","List","Map","Array"], answer:"Set", hint:"Its whole point is uniqueness." },
-    { lang:"java", type:"blank", q:"Start a class named Bank:", code:"public ___ Bank {}", answer:["class"], hint:"The keyword that defines a class." },
-    { lang:"java", type:"mc", q:"What does <code>final</code> on a variable mean?", options:["cannot be reassigned","cannot be null","is static","is private"], answer:"cannot be reassigned", hint:"Java's version of a constant binding." },
-    { lang:"java", type:"multi", q:"Which are valid Java primitive types?", options:["boolean","double","char","string"], answer:["boolean","double","char"], hint:"String is a class (capital S), not a primitive." },
+    { lang:"java", type:"mc", q:"Which is Java's entry-point method signature?", options:["public static void main(String[] args)","def main():","function main()","static main(args)"], answer:"public static void main(String[] args)", hint:"public, static, void, and a String array.", hintIt:"public, static, void e un array di String." },
+    { lang:"java", type:"tf", q:"In Java every variable must have a declared type.", answer:true, hint:"It's statically typed (though `var` can infer locally).", hintIt:"È tipizzato staticamente (anche se `var` può dedurre a livello locale)." },
+    { lang:"java", type:"blank", q:"Print a line to stdout:", code:'System.out.___("hi");', answer:["println"], hint:"'print line' — the ln version.", hintIt:"'print line' — la versione con ln." },
+    { lang:"java", type:"mc", q:"What is <code>int</code>?", options:["a primitive","an object","an interface","a wrapper class"], answer:"a primitive", hint:"Its object wrapper is Integer, but int itself is not one.", hintIt:"Il suo wrapper è Integer, ma int in sé non lo è." },
+    { lang:"java", type:"multi", q:"Select ALL Java access modifiers.", options:["public","private","protected","internal"], answer:["public","private","protected"], hint:"'internal' is a C# modifier, not Java.", hintIt:"'internal' è un modificatore del C#, non di Java." },
+    { lang:"java", type:"tf", q:"Java is compiled to bytecode that runs on the JVM.", answer:true, hint:"The .class files run on the virtual machine.", hintIt:"I file .class girano sulla macchina virtuale (JVM)." },
+    { lang:"java", type:"mc", q:"Which keyword creates an object?", options:["new","malloc","make","alloc"], answer:"new", hint:"You call it right before the constructor.", hintIt:"Si usa subito prima del costruttore." },
+    { lang:"java", type:"blank", q:"Declare an integer variable count = 0:", code:"___ count = 0;", answer:["int"], hint:"The 32-bit primitive integer type.", hintIt:"Il tipo intero primitivo a 32 bit." },
+    { lang:"java", type:"mc", q:"What does <code>\"a\".equals(\"a\")</code> return?", options:["true","false","0","null"], answer:"true", hint:".equals compares content; use it instead of == for strings.", hintIt:".equals confronta il contenuto; usalo al posto di == per le stringhe." },
+    { lang:"java", type:"tf", q:"<code>==</code> on two String objects compares references, not content.", answer:true, hint:"That's why you reach for .equals().", hintIt:"Ecco perché si ricorre a .equals()." },
+    { lang:"java", type:"mc", q:"Which collection type disallows duplicates?", options:["Set","List","Map","Array"], answer:"Set", hint:"Its whole point is uniqueness.", hintIt:"Il suo scopo è proprio l'unicità." },
+    { lang:"java", type:"blank", q:"Start a class named Bank:", code:"public ___ Bank {}", answer:["class"], hint:"The keyword that defines a class.", hintIt:"La parola chiave che definisce una classe." },
+    { lang:"java", type:"mc", q:"What does <code>final</code> on a variable mean?", options:["cannot be reassigned","cannot be null","is static","is private"], answer:"cannot be reassigned", hint:"Java's version of a constant binding.", hintIt:"La versione Java di un legame costante." },
+    { lang:"java", type:"multi", q:"Which are valid Java primitive types?", options:["boolean","double","char","string"], answer:["boolean","double","char"], hint:"String is a class (capital S), not a primitive.", hintIt:"String è una classe (S maiuscola), non un primitivo." },
 
     // ============================== C# (13) =============================
-    { lang:"csharp", type:"blank", q:"Print a line to the console:", code:'Console.___("hi");', answer:["writeline"], hint:"'Write' + 'Line' as one PascalCase method." },
-    { lang:"csharp", type:"mc", q:"Which keyword makes a property auto-implemented?", options:["get; set;","prop","auto","field"], answer:"get; set;", hint:"Accessors in braces with no body." },
-    { lang:"csharp", type:"tf", q:"C# runs on the .NET runtime.", answer:true, hint:"It compiles to IL that runs on the CLR." },
-    { lang:"csharp", type:"multi", q:"Select ALL C# access modifiers.", options:["public","private","internal","protected"], answer:["public","private","internal","protected"], hint:"C# has 'internal' — all four are valid here." },
-    { lang:"csharp", type:"mc", q:"What does <code>var</code> do in C#?", options:["infers the static type","makes it dynamic","makes it nullable","makes it global"], answer:"infers the static type", hint:"The type is still fixed at compile time — just inferred." },
-    { lang:"csharp", type:"blank", q:"Declare a string variable name:", code:'___ name = "Fra";', answer:["string","var"], hint:"Either the explicit type or the inference keyword works." },
-    { lang:"csharp", type:"tf", q:"In C#, <code>string</code> is an alias for <code>System.String</code>.", answer:true, hint:"The lowercase keyword maps to the framework type." },
-    { lang:"csharp", type:"mc", q:"Which loop runs its body at least once?", options:["do...while","while","for","foreach"], answer:"do...while", hint:"The condition is checked at the bottom." },
-    { lang:"csharp", type:"mc", q:"What does <code>??</code> (null-coalescing) do?", options:["returns left if not null, else right","logical or","ternary","cast"], answer:"returns left if not null, else right", hint:"a ?? b gives a unless a is null." },
-    { lang:"csharp", type:"blank", q:"Iterate items with a foreach:", code:"foreach (var x ___ items) {}", answer:["in"], hint:"foreach (var x __ collection)" },
-    { lang:"csharp", type:"tf", q:"C# supports <code>async</code>/<code>await</code> for asynchronous code.", answer:true, hint:"Same keyword pair you'll recognize from JS/TS." },
-    { lang:"csharp", type:"mc", q:"Which keyword marks a class you cannot inherit from?", options:["sealed","final","static","const"], answer:"sealed", hint:"Java uses 'final' for this; C# uses a different word." },
-    { lang:"csharp", type:"blank", q:"Define a namespace called App:", code:"___ App {}", answer:["namespace"], hint:"C#'s way to group types under a name." },
+    { lang:"csharp", type:"blank", q:"Print a line to the console:", code:'Console.___("hi");', answer:["writeline"], hint:"'Write' + 'Line' as one PascalCase method.", hintIt:"'Write' + 'Line' in un unico metodo PascalCase." },
+    { lang:"csharp", type:"mc", q:"Which keyword makes a property auto-implemented?", options:["get; set;","prop","auto","field"], answer:"get; set;", hint:"Accessors in braces with no body.", hintIt:"Accessori tra graffe senza corpo." },
+    { lang:"csharp", type:"tf", q:"C# runs on the .NET runtime.", answer:true, hint:"It compiles to IL that runs on the CLR.", hintIt:"Compila in IL che gira sul CLR." },
+    { lang:"csharp", type:"multi", q:"Select ALL C# access modifiers.", options:["public","private","internal","protected"], answer:["public","private","internal","protected"], hint:"C# has 'internal' — all four are valid here.", hintIt:"Il C# ha 'internal' — qui sono validi tutti e quattro." },
+    { lang:"csharp", type:"mc", q:"What does <code>var</code> do in C#?", options:["infers the static type","makes it dynamic","makes it nullable","makes it global"], answer:"infers the static type", hint:"The type is still fixed at compile time — just inferred.", hintIt:"Il tipo resta fisso in compilazione — solo dedotto." },
+    { lang:"csharp", type:"blank", q:"Declare a string variable name:", code:'___ name = "Fra";', answer:["string","var"], hint:"Either the explicit type or the inference keyword works.", hintIt:"Va bene sia il tipo esplicito sia la parola chiave di inferenza." },
+    { lang:"csharp", type:"tf", q:"In C#, <code>string</code> is an alias for <code>System.String</code>.", answer:true, hint:"The lowercase keyword maps to the framework type.", hintIt:"La parola chiave minuscola corrisponde al tipo del framework." },
+    { lang:"csharp", type:"mc", q:"Which loop runs its body at least once?", options:["do...while","while","for","foreach"], answer:"do...while", hint:"The condition is checked at the bottom.", hintIt:"La condizione è controllata alla fine." },
+    { lang:"csharp", type:"mc", q:"What does <code>??</code> (null-coalescing) do?", options:["returns left if not null, else right","logical or","ternary","cast"], answer:"returns left if not null, else right", hint:"a ?? b gives a unless a is null.", hintIt:"a ?? b restituisce a, a meno che a non sia null." },
+    { lang:"csharp", type:"blank", q:"Iterate items with a foreach:", code:"foreach (var x ___ items) {}", answer:["in"], hint:"foreach (var x __ collection)", hintIt:"foreach (var x __ collezione)" },
+    { lang:"csharp", type:"tf", q:"C# supports <code>async</code>/<code>await</code> for asynchronous code.", answer:true, hint:"Same keyword pair you'll recognize from JS/TS.", hintIt:"La stessa coppia di parole chiave che riconosci da JS/TS." },
+    { lang:"csharp", type:"mc", q:"Which keyword marks a class you cannot inherit from?", options:["sealed","final","static","const"], answer:"sealed", hint:"Java uses 'final' for this; C# uses a different word.", hintIt:"Java usa 'final' per questo; il C# usa una parola diversa." },
+    { lang:"csharp", type:"blank", q:"Define a namespace called App:", code:"___ App {}", answer:["namespace"], hint:"C#'s way to group types under a name.", hintIt:"Il modo del C# di raggruppare i tipi sotto un nome." },
   ];
   // Filled per play with a random 15 from POOL.
   let QUESTIONS = [];
@@ -2062,7 +2072,9 @@ const Atlas = (() => {
     hintEl.textContent = ""; hintEl.className = "atlas-hint";
     hintBtn.className = "atlas-hintbtn"; hintBtn.textContent = "💡 hint";
     hintBtn.onclick = () => {
-      hintEl.textContent = q.hint || "no hint for this one — you've got it."; hintEl.className = "atlas-hint show";
+      hintEl.innerHTML = esc(q.hint || "no hint for this one — you've got it.") +
+        (q.hintIt ? '<span class="atlas-hint-it">' + esc(q.hintIt) + '</span>' : "");
+      hintEl.className = "atlas-hint show";
       hintBtn.className = "atlas-hintbtn spent"; hintBtn.textContent = "💡 hint shown";
       hintBtn.onclick = null;
     };
