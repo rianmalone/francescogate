@@ -779,6 +779,17 @@
   .rh-touch button { width: 64px; height: 64px; font-size: 1.5rem; font-weight: 900; background: rgba(20,10,30,0.8); color: #fff; border: 1px solid #555; border-radius: 12px; }
   @media (hover: none) and (pointer: coarse) { .rh-touch { display: flex; } }
 
+  /* touch-only leave button — shows on coarse pointers, only while a game is open */
+  #touchBack {
+    position: fixed; top: 10px; right: 10px; z-index: 9998; display: none;
+    width: 46px; height: 46px; font-size: 1.2rem; font-weight: 800; line-height: 1;
+    background: rgba(20,20,30,0.85); color: #fff; border: 1px solid #555; border-radius: 12px; cursor: pointer;
+  }
+  @media (hover: none) and (pointer: coarse) {
+    #level.on ~ #touchBack, #atlas.on ~ #touchBack, #runner.on ~ #touchBack,
+    #heist.on ~ #touchBack, #rhythm.on ~ #touchBack { display: block; }
+  }
+
   /* ---- desktop-only gate (shown on touch/mobile devices) ---- */
   #mobileBlock {
     position: fixed; inset: 0; z-index: 99999; display: none;
@@ -1015,6 +1026,9 @@
 </div>
 <audio id="rhythmAudio" src="assets/dubstep.mp3" preload="auto"></audio>
 
+<!-- touch-only "leave" button (phone forced into the desktop version) -->
+<button id="touchBack" type="button" aria-label="Leave">✕</button>
+
 <script>window.FG_BEATMAP=[[23,0],[975,2],[1765,0],[2577,0],[4342,2],[5155,0],[5921,1],[6594,1],[7732,0],[9358,2],[10147,1],[11215,1],[12005,3],[12771,3],[13444,3],[14443,1],[15232,2],[15929,3],[16927,3],[18135,3],[18855,3],[19574,3],[20503,2],[21269,2],[21920,1],[22570,2],[23847,3],[25147,2],[25937,3],[26610,3],[27609,1],[28375,2],[29048,3],[29907,2],[30906,3],[31602,1],[32578,0],[33530,0],[34180,3],[35155,0],[35944,1],[36595,0],[37732,0],[38383,0],[39172,0],[39985,1],[40635,0],[41726,3],[42562,3],[43212,2],[43862,0],[44536,1],[45465,0],[46440,1],[47113,2],[48367,2],[49342,0],[50318,0],[50991,1],[52036,2],[52733,1],[53522,3],[54172,1],[54822,2],[55798,1],[56750,2],[57400,3],[58050,0],[58723,2],[59652,1]];</script>
 <script>
 /* ==========================================================================
@@ -1059,6 +1073,7 @@ function playStep() {
     src.start(); src.stop(ctx.currentTime + dur);
   } catch (e) {}
 }
+const IS_COARSE = !!(window.matchMedia && window.matchMedia("(hover: none) and (pointer: coarse)").matches);  // phone forced to desktop
 let mapActive = true;                       // paused while a level is running
 const held = { up:false, down:false, left:false, right:false };
 
@@ -1139,6 +1154,33 @@ document.querySelectorAll("#dpad button").forEach(btn => {
   btn.addEventListener("pointercancel", release);
 });
 
+// ---- touch equivalents for the keyboard-only actions (E / Escape). Coarse
+//      pointers only, so a real desktop is completely unaffected. ----
+(function () {
+  if (!IS_COARSE) return;
+  const back = document.getElementById("touchBack");
+  if (back) back.addEventListener("click", () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" })));
+  // tap the on-screen prompts instead of pressing E
+  const bl = document.getElementById("ballLabel");
+  if (bl) { bl.style.pointerEvents = "auto"; bl.addEventListener("click", () => { if (bl.classList.contains("show")) tryEnter(); }); }
+  const pl = document.getElementById("planeLabel");
+  if (pl) { pl.style.pointerEvents = "auto"; pl.addEventListener("click", () => { if (mapActive && planeReady()) startEndgame(); }); }
+  const ap = document.querySelector(".atlas-press");
+  if (ap) { ap.style.pointerEvents = "auto"; ap.addEventListener("click", () => Atlas.pressE()); }
+  // relabel the keyboard prompts for touch
+  const ready = document.querySelector("#ballLabel .ready");
+  if (ready) ready.textContent = "▶ TAP TO ENTER";
+  if (ap) ap.textContent = "▶ TAP TO BEGIN";
+  const hints = {
+    ".level-hint": "tap ✕ to leave",
+    ".atlas-esc": "tap ✕ to leave",
+    ".run-hint": "tap ✕ to leave · buttons below to jump / duck",
+    ".heist-hint": "tap ✕ to leave · buttons below to move / jump",
+    ".rh-hint": "hit the arrow pads below on the line · tap ✕ to leave"
+  };
+  Object.keys(hints).forEach(sel => { const el = document.querySelector(sel); if (el) el.textContent = hints[sel]; });
+})();
+
 /* ---- plane collision helpers ---- */
 function rectsOverlap(ax,ay,ax2,ay2, bx,by,bx2,by2){ return ax < bx2 && ax2 > bx && ay < by2 && ay2 > by; }
 function planeBox() {
@@ -1208,7 +1250,7 @@ function updatePlaneLabel() {
   const c = centerOf(plane), px = x + SIZE/2, py = y + SIZE/2;
   if (Math.hypot(px - c.x, py - c.y) < 150) {
     const g = gas();
-    planeLabel.innerHTML = (g >= GAS_MAX ? "⛽ FUELLED — PRESS E TO TAKE OFF!" : "⛽ FUEL: " + g + " / " + GAS_MAX)
+    planeLabel.innerHTML = (g >= GAS_MAX ? ("⛽ FUELLED — " + (IS_COARSE ? "TAP TO TAKE OFF!" : "PRESS E TO TAKE OFF!")) : "⛽ FUEL: " + g + " / " + GAS_MAX)
       + '<span class="sub2">' + (g >= GAS_MAX ? "Rifornito — premi E per decollare!" : "Carburante: " + g + " / " + GAS_MAX + "") + '</span>';
     planeLabel.classList.add("show");
     const pr = plane.getBoundingClientRect(), mr = map.getBoundingClientRect();
@@ -1264,7 +1306,8 @@ requestAnimationFrame(tick);
 
 // player instructions — always visible; the dev "full intro" link only on localhost
 document.getElementById("devNote").innerHTML =
-  'WASD / arrows to move · walk up to something &amp; press E'
+  (IS_COARSE ? 'd-pad to move · walk up to something &amp; tap its label'
+             : 'WASD / arrows to move · walk up to something &amp; press E')
   + (["localhost", "127.0.0.1"].includes(location.hostname) ? ' · <a href="index.html?full">full intro →</a>' : '');
 
 /* ==========================================================================
