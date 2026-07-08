@@ -1207,7 +1207,13 @@ const INTERACTS = [
 // next once beaten. (Admin: typing 983 on the map unlocks everything.)
 const UNLOCK_ORDER = INTERACTS.map(it => it.level);
 let cheatAll = localStorage.getItem("fg_cheat") === "1";
-function isUnlocked(i) { return cheatAll || i === 0 || beaten.has(UNLOCK_ORDER[i - 1]); }
+function isUnlocked(i) {
+  if (cheatAll || i === 0) return true;
+  // Phone-desktop skip (coarse only): the motorbike unlocks right after football
+  // (alongside Atlas AI) so Atlas can be skipped. Desktop keeps the strict chain.
+  if (IS_COARSE && i === 2) return beaten.has(UNLOCK_ORDER[0]) || beaten.has(UNLOCK_ORDER[1]);
+  return beaten.has(UNLOCK_ORDER[i - 1]);
+}
 function itUnlocked(it) { return isUnlocked(INTERACTS.indexOf(it)); }
 // Show only the games that are currently unlocked.
 function refreshUnlocks() {
@@ -1315,7 +1321,9 @@ document.getElementById("devNote").innerHTML =
    ========================================================================== */
 const GAS_MAX = 5;
 const beaten = new Set(JSON.parse(localStorage.getItem("fg_beaten") || "[]"));
-function gas() { return Math.min(beaten.size, GAS_MAX); }
+// Phone-desktop skip (coarse only): the motorbike is worth 2 gas so Atlas AI
+// can be skipped and the tank can still be filled. Desktop is unchanged.
+function gas() { return Math.min(beaten.size + ((IS_COARSE && beaten.has("gp-getaway")) ? 1 : 0), GAS_MAX); }
 function renderGas() {
   const pct = (gas() / GAS_MAX) * 100;                 // how full, 0–100%
   document.getElementById("gasFill").style.height = pct + "%";
